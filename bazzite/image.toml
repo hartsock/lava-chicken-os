@@ -1,13 +1,16 @@
-# bootc-image-builder config for the Anaconda install ISO.
+# bootc-image-builder config for the install artifacts (anaconda-iso, qcow2).
 # VERIFY schema against current bootc-image-builder docs before first build.
 #
-# Deliberately does NOT bake a user: the Anaconda OOBE creates the primary
-# account (type your GitHub handle as the username), and
-# lava-chicken-firstboot.service then fills SSH keys / Sunshine / newt persona
-# for whoever that primary user is. This mirrors SteamOS's 'deck' and keeps the
-# image free of baked credentials.
+# ⚠️ SAFETY: bootc-image-builder's anaconda-iso is UNATTENDED by default — an
+# ABSENT kickstart block installs to "the first disk found" (a silent whole-disk
+# wipe). We force INTERACTIVE mode with an explicit EMPTY-STRING kickstart
+# (contents = ""), which emits only the `ostreecontainer` line and drops Anaconda
+# into interactive Blivet-GUI partitioning. An empty string is NOT the same as an
+# absent block or a comment-only string — do not "tidy" this away.
+#
+# Even so, this ISO is intended for SINGLE-OS installs. For DUAL-BOOT with
+# Windows, do NOT use this ISO — use stock Bazzite + `bootc switch`. See
+# docs/INSTALL-DUALBOOT.md. Deliberately bakes no user (Anaconda OOBE creates it).
 
 [customizations.installer.kickstart]
-contents = """
-# Minimal: let the interactive OOBE handle user + disk. First boot does the rest.
-"""
+contents = ""

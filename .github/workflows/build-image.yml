@@ -125,3 +125,36 @@ jobs:
           name: lava-chicken-os-installer
           path: ./output/**/*.iso
           if-no-files-found: error
+
+  # A qcow2 VM disk for RISK-FREE testing — boot it in a VM before touching real
+  # hardware (esp. before any dual-boot partition surgery). See docs/INSTALL-DUALBOOT.md.
+  build-vm:
+    needs: build-image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build qcow2 VM disk
+        run: |
+          # VERIFY: bootc-image-builder image tag + config schema.
+          mkdir -p ./output
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v ./output:/output \
+            -v ./bazzite/image.toml:/config.toml:ro \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type qcow2 \
+            --config /config.toml \
+            "${IMAGE_REGISTRY}/${IMAGE_NAME}:stable"
+
+      - name: Upload qcow2 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lava-chicken-os-vm
+          path: ./output/**/*.qcow2
+          if-no-files-found: error

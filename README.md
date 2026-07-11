@@ -1,0 +1,83 @@
+<p align="center">
+  <img src="assets/brand/nugget.png" alt="Lava Chicken OS — Nugget mascot" width="360">
+</p>
+
+<h1 align="center">Lava Chicken OS 🐔🌋</h1>
+
+<p align="center"><b>A Gamer's OS.</b> &nbsp;·&nbsp; <code>LaCOS</code> for short.</p>
+
+<p align="center">
+Turn an old Windows 10 PC (no TPM required — Linux doesn't care) into a
+Minecraft-themed SteamOS / Bazzite gaming + local-AI + mod-dev machine —
+with <b>Nugget</b>, a resident AI agent living on the box.
+</p>
+
+> *"That's a Steve's Lava Chicken!"* — your PC, every boot.
+
+## What you get
+
+- **SteamOS 3.8+ or Bazzite** as the base OS (AMD GPU: both work; NVIDIA: Bazzite only)
+- **Gaming Mode boot video with sound** — you supply your own copy of
+  *Steve's Lava Chicken*, our script turns it into a Steam startup movie
+- **Desktop login sound** (same audio, systemd user service)
+- **Minecraft-style wallpapers** — bring your own, or generate original blocky
+  art with the included script
+- **[ollama](https://ollama.com)** running on your AMD GPU (ROCm), installed
+  entirely in `$HOME` so it survives SteamOS atomic updates
+- **[newt-agent](https://github.com/Gilamonster-Foundation/newt-agent)** —
+  small, fast, local-first agentic coder, pointed at your local ollama
+- **Minecraft Java Edition mod toolchain** — JDK 21, Gradle (via SDKMAN),
+  Fabric + NeoForge templates, IntelliJ IDEA CE + Prism Launcher (Flatpak)
+- **Nugget boot splash** — a Plymouth theme with the mascot and *Lava Chicken OS*
+- **Nugget, your resident agent** — a dedicated on-box account running
+  [newt-agent](https://github.com/Gilamonster-Foundation/newt-agent) in a
+  persistent session; a **"nugget" icon on every desktop** attaches you to it
+- **Day-zero remote access** — key-only SSH seeded from your GitHub account, plus
+  Sunshine/Moonlight game streaming, ready from first boot
+- **Bootc image** — Bazzite builds in GitHub Actions → GHCR with an install ISO;
+  SteamOS gets the same setup via `bootstrap.sh`
+
+## Quick start
+
+1. Install the base OS — see [docs/INSTALL-STEAMOS.md](docs/INSTALL-STEAMOS.md)
+   or [docs/INSTALL-BAZZITE.md](docs/INSTALL-BAZZITE.md).
+2. Boot to Desktop Mode, open a terminal:
+
+   ```bash
+   git clone https://github.com/hartsock/lava-chicken-os
+   cd lava-chicken-os
+   ./bootstrap.sh          # runs all steps; or run scripts/NN-*.sh individually
+   ```
+
+3. Drop your audio/wallpaper files into `assets/user/` when prompted
+   (see [assets/user/README.md](assets/user/README.md)).
+4. In Gaming Mode: **Settings → Customization → Startup Movie → Lava Chicken**.
+
+## Design rules
+
+- **Everything lives in `$HOME`.** SteamOS's root filesystem is read-only and
+  wiped on atomic updates; we never touch it. This also means the same scripts
+  work unmodified on Bazzite.
+- **No copyrighted assets in this repo.** The song, movie clips, and official
+  Mojang art are yours to supply locally. See [docs/LEGAL-ASSETS.md](docs/LEGAL-ASSETS.md).
+- **Idempotent scripts.** Re-run anything safely.
+
+## Repo layout
+
+```
+bootstrap.sh              entry point — detects OS, runs all steps
+scripts/                  numbered, independently runnable steps
+assets/user/              your local media (gitignored)
+assets/generated/         wallpaper generator (original art only)
+systemd/                  user units (login sound, ollama)
+templates/                Fabric / NeoForge mod starter notes
+docs/                     install guides, plan, legal notes
+```
+
+## Status
+
+Pre-alpha. Built and tested against SteamOS 3.8 and Bazzite (KDE, AMD).
+
+## License
+
+MIT (code and docs only — media assets are never part of this repo).

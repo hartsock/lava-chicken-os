@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Lava Chicken OS
+Description=Steve's Lava Chicken boot splash — flaming nugget + Lava Chicken OS
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/lava-chicken
+ScriptFile=/usr/share/plymouth/themes/lava-chicken/lava-chicken.script

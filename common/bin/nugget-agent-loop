@@ -6,7 +6,7 @@
 # --full-access is a deliberate temporary escape hatch until newt OCAP matures
 # (then it becomes a no-op); we pass it unconditionally. See newt-agent#1090.
 set -u
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="/var/lib/lava-chicken/bin:$HOME/.local/bin:$PATH"   # shared newt
 export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 cd "$HOME" 2>/dev/null || true
 

@@ -19,10 +19,14 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
   Anaconda install ISO artifact; SteamOS parity via first-boot `bootstrap.sh`.
 - **Boot sound** — "Steve's Lava Chicken" plays at greeter time via a system
   ALSA service (desktop boots) plus the existing Steam startup movie (Game Mode).
-- **Resident `nugget` agent** — dedicated sudo-capable account (default hostname
-  + user `nugget`) running newt-agent in a persistent tmux session; a system-wide
-  "Talk to Nugget" launcher on every user's desktop attaches to it; the session
-  auto-restarts (`newt --full-access --no-splash`) on `/end` or exit.
+- **`nugget` agent — one persona, two modes.** *Per-user:* a "nugget" desktop
+  icon (every user) launches `newt --no-splash --full-access` **as that user**,
+  in their own account — full newt tools bounded by the user's own permissions,
+  so kids get a usable agent with **no path to root**. *Resident:* a dedicated
+  `nugget` account runs a persistent tmux session for **remote admin**, attachable
+  by **admins only** (`nugget-tui` = `wheel`); kids are kept out of that path
+  until newt OCAP can make it safe. newt is installed to a shared dir so all
+  users can run it.
 - **newt-agent install** — pulls the latest GitHub release (`linux-x86_64`
   tarball) rather than building from source.
 - **Nugget mascot + boot splash** — the flaming-nugget mascot
@@ -39,8 +43,10 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
   full account rename is a tracked follow-up.
 
 ### Security notes
-- `nugget` ships with `NOPASSWD:ALL` sudo (owner's explicit choice). Guardrails
-  that coexist with that: sudo audit logging, a systemd kill switch, ollama bound
-  to loopback, `authorized_keys` installed root-owned, remote-access config flagged
-  immutable-to-nugget. These are speed bumps + observability, not containment;
-  newt OCAP is the eventual real boundary (see newt-agent#1090).
+- `nugget` uses a **propose-&-approve** sudo posture: the agent account has **no
+  passwordless sudo and isn't in `wheel`** (locked password → it cannot `sudo` at
+  all); privileged actions are proposed by the agent and run by a human. Full
+  autonomous root is **deferred until newt OCAP** (newt-agent#1090). Per-user
+  nugget instances inherit each user's own (unprivileged) permissions. Guardrails:
+  sudo audit logging, systemd kill switch, ollama on loopback, `authorized_keys`
+  root-owned (`hartsock` = public keys only; nothing shells out as him).

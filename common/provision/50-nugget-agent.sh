@@ -22,9 +22,9 @@ else
   pwarn "ollama not installed yet — run scripts/40-ollama.sh; the agent will retry."
 fi
 
-# --- newt: install the LATEST release for nugget (not a source build) --------
-if bash "$HERE/../bin/install-newt-release.sh" nugget; then
-  plog "newt (latest release) installed for nugget"
+# --- newt: install the LATEST release to the SHARED dir (all users can run it) --
+if bash "$HERE/../bin/install-newt-release.sh" /var/lib/lava-chicken/bin; then
+  plog "newt (latest release) installed to /var/lib/lava-chicken/bin (shared)"
 else
   pwarn "newt release install failed (no release / network?) — agent loop will retry."
 fi

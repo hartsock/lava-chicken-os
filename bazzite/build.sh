@@ -42,6 +42,8 @@ install -D -m0644 "$PAY/desktop/nugget-agent.desktop"    /usr/share/applications
 install -D -m0755 "$PAY/libexec/nugget-grant-tui"        /usr/libexec/nugget-grant-tui
 install -D -m0755 "$PAY/bin/nugget-agentctl"             /usr/bin/nugget-agentctl
 install -D -m0755 "$PAY/bin/lacos"                       /usr/bin/lacos
+install -D -m0755 "$PAY/bin/nugget"                      /usr/bin/nugget
+install -D -m0644 "$PAY/profile.d/lava-chicken.sh"       /etc/profile.d/lava-chicken.sh
 for u in lava-chicken-boot-sound.service nugget-agent-tmux.service nugget-agent-grant@.service; do
   install -D -m0644 "$PAY/systemd/$u" "/usr/lib/systemd/system/$u"
 done

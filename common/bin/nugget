@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# The "nugget" icon — your PERSONAL agent, launched AS YOU in your own account.
+# `newt --full-access` gives full newt tools, but bounded by YOUR OS permissions:
+# a kid's nugget literally cannot touch root, because the kid can't. No --yolo.
+# Same persona as the resident admin nugget; only the launch context differs.
+set -euo pipefail
+export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+export PATH="/var/lib/lava-chicken/bin:$HOME/.local/bin:$PATH"
+
+# Make sure this user has the nugget persona in their own profile.
+P="$HOME/.newt/personas/nugget.md"
+if [ ! -f "$P" ]; then
+  install -d -m0755 "$HOME/.newt/personas"
+  for s in /var/lib/lava-chicken/persona/nugget.md \
+           /usr/share/lava-chicken/persona/nugget.md; do
+    [ -r "$s" ] && { install -m0644 "$s" "$P"; break; }
+  done
+fi
+
+if ! command -v newt >/dev/null 2>&1; then
+  echo "newt isn't installed yet — ask an admin to finish box setup."
+  read -r -p "Press enter to close. " _ || true
+  exit 1
+fi
+exec newt --no-splash --full-access --persona nugget code

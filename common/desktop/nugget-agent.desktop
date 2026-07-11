@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=nugget
-GenericName=Resident AI agent
-Comment=Talk to nugget — the box's resident lava-chicken AI agent
-# Exec path is rewritten per-OS at install (/usr/share on Bazzite, /var/lib on
-# SteamOS). konsole is KDE's terminal on both bases.
-Exec=konsole --hide-menubar -e /usr/share/lava-chicken/bin/attach-nugget
+GenericName=Your AI agent
+Comment=Talk to nugget — your personal lava-chicken AI agent (runs as you)
+# Launches newt AS THE CURRENT USER (bounded by their own permissions, no root).
+# Path is rewritten to /var/lib/... on SteamOS at install.
+Exec=konsole --hide-menubar -e /usr/bin/nugget
 Icon=preferences-desktop-emoticons
 Terminal=false
 Categories=Utility;System;

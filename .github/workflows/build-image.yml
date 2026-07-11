@@ -165,6 +165,7 @@ jobs:
             -v "$(pwd)/output":/output \
             quay.io/centos-bootc/bootc-image-builder:latest \
             --type anaconda-iso \
+            --rootfs btrfs \
             --config /config.toml \
             "${REG}/${IMAGE_NAME}:stable"
 
@@ -219,6 +220,7 @@ jobs:
             -v "$(pwd)/output":/output \
             quay.io/centos-bootc/bootc-image-builder:latest \
             --type qcow2 \
+            --rootfs btrfs \
             --config /config.toml \
             "${REG}/${IMAGE_NAME}:stable"
 

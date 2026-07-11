@@ -43,9 +43,10 @@ install -D -m0755 "$PAY/libexec/nugget-grant-tui"        /usr/libexec/nugget-gra
 install -D -m0755 "$PAY/bin/nugget-agentctl"             /usr/bin/nugget-agentctl
 install -D -m0755 "$PAY/bin/lacos"                       /usr/bin/lacos
 install -D -m0755 "$PAY/bin/nugget"                      /usr/bin/nugget
-install -D -m0755 "$PAY/bin/lacos-pull-models"           /usr/share/lava-chicken/bin/lacos-pull-models
-install -D -m0755 "$PAY/bin/lacos-install-apps"          /usr/share/lava-chicken/bin/lacos-install-apps
-install -D -m0755 "$PAY/bin/lacos-setup"                 /usr/share/lava-chicken/bin/lacos-setup
+# lacos-pull-models / lacos-install-apps / lacos-setup already live under
+# $PAY/bin (= /usr/share/lava-chicken/bin) from the payload sync — no install
+# needed (installing onto themselves errors "same file"). The units + find_bin
+# reference them there directly.
 install -D -m0644 "$PAY/desktop/lacos-setup.desktop"     /usr/share/applications/lacos-setup.desktop
 install -D -m0644 "$PAY/profile.d/lava-chicken.sh"       /etc/profile.d/lava-chicken.sh
 for u in lava-chicken-boot-sound.service nugget-agent-tmux.service nugget-agent-grant@.service \

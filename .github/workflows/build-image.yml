@@ -45,7 +45,7 @@ jobs:
       packages: write
       id-token: write # cosign keyless (OIDC) signing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Bazzite layers are multi-GB; free the runner or the build can hit ENOSPC.
       - name: Maximize build space
@@ -133,7 +133,7 @@ jobs:
       contents: read
       packages: read # pull the just-pushed (private-by-default) GHCR image
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # bootc-image-builder needs ~20-30 GB for a Bazzite ISO. Reclaim first.
       - name: Free disk space
@@ -189,7 +189,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main @ pinned

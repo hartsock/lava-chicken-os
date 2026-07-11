@@ -8,6 +8,8 @@ name: build-image
 # The stale redhat-actions/buildah-build + push-to-registry actions were dropped.
 
 on:
+  pull_request:
+    branches: [main] # PRs build + smoke-inspect (no publish) so merge-on-green gates
   push:
     branches: [main]
     paths:
@@ -84,6 +86,45 @@ jobs:
             --label "org.opencontainers.image.title=${IMAGE_NAME}" \
             --tag "${IMAGE_NAME}:stable" \
             ./bazzite
+
+      # L1 smoke (#9): assert the baked "nugget layer" INSIDE the freshly-built
+      # image before we ever push. Runs on every PR + push, ~1 min, no VM. This
+      # is the cheap net that catches "the build silently stopped installing X".
+      - name: Smoke-inspect the nugget layer
+        run: |
+          set -euo pipefail
+          sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:stable" -euo pipefail -c '
+            fail=0
+            need_f() { [ -f "$1" ] || { echo "MISSING file: $1"; fail=1; }; }
+            need_x() { [ -x "$1" ] || { echo "MISSING exec: $1"; fail=1; }; }
+            # branded entrypoints + per-user agent launcher
+            need_x /usr/bin/lacos
+            need_x /usr/bin/nugget
+            need_x /usr/bin/nugget-agentctl
+            # system units that must be baked in
+            for u in lava-chicken-firstboot lava-chicken-boot-sound nugget-agent-tmux \
+                     lava-chicken-models lava-chicken-apps; do
+              need_f "/usr/lib/systemd/system/${u}.service"
+            done
+            # account seed + agent persona + branded payload
+            need_f /usr/lib/sysusers.d/nugget.conf
+            need_f /usr/share/lava-chicken/persona/nugget-persona.md
+            need_x /usr/share/lava-chicken/bin/lacos-setup
+            need_x /usr/share/lava-chicken/bin/lacos-pull-models
+            # original brand media that must ship in the image
+            need_f /usr/share/lava-chicken/brand/boot-sound.wav
+            need_f /usr/share/lava-chicken/brand/wallpaper.png
+            need_f /usr/share/plymouth/themes/lava-chicken/lava-chicken.plymouth
+            # firstboot + sshd must be statically enabled (they run day zero)
+            for u in lava-chicken-firstboot sshd; do
+              state=$(systemctl is-enabled "${u}.service" 2>/dev/null || true)
+              case "$state" in enabled|enabled-runtime|static|alias) ;;
+                *) echo "NOT enabled: ${u} (is-enabled=${state:-none})"; fail=1;; esac
+            done
+            # LaCOS rebrand landed in os-release
+            grep -q "Lava Chicken OS" /usr/lib/os-release || { echo "os-release not rebranded"; fail=1; }
+            [ "$fail" = 0 ] && echo "nugget layer OK" || { echo "SMOKE FAILED"; exit 1; }
+          '
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'

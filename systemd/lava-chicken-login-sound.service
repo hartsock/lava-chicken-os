@@ -1,0 +1,12 @@
+[Unit]
+Description=Steve's Lava Chicken login sound
+After=pipewire.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+# pw-play ships with pipewire on SteamOS and Bazzite; fall back to paplay.
+ExecStart=/bin/sh -c 'command -v pw-play >/dev/null && exec pw-play "@AUDIO@"; exec paplay "@AUDIO@"'
+
+[Install]
+WantedBy=graphical-session.target

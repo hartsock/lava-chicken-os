@@ -32,7 +32,7 @@ For the plain-Bazzite or SteamOS path, use `bootstrap.sh` instead
 4. Reboot, remove USB. First boot runs `lava-chicken-firstboot.service`, which:
    - pulls `https://github.com/<LAVA_GITHUB_USER>.keys` → your `authorized_keys`,
    - enables key-only sshd,
-   - enables + firewalls Sunshine (LAN + WireGuard `10.10.0.0/24`),
+   - enables + firewalls Sunshine (LAN + your VPN subnet),
    - creates the dedicated `nugget` agent account (sudo), installs the latest
      newt release + persona, and starts its resident tmux session,
    - drops a system-wide **"nugget"** launcher on every user's desktop.
@@ -49,8 +49,8 @@ The first attach asks you to authenticate once (polkit), then joins the resident
 agent's tmux session. Detach with `Ctrl-b d` — nugget keeps running. Off-switch:
 `sudo nugget-agentctl {pause|disable|resume|status}`.
 
-Moonlight: point it at `<box-ip>` (or `<box>.home.lab`), pair once with the PIN
-shown in Sunshine's web UI at `https://<box-ip>:47990`.
+Moonlight: point it at `<box-ip>` (or `<box>.<your-home-domain>`), pair once with
+the PIN shown in Sunshine's web UI at `https://<box-ip>:47990`.
 
 ## Updates
 

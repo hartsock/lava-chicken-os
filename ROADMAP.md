@@ -36,7 +36,7 @@ This roadmap *sequences* the design docs; it does not replace them.
 
 | Item | Issue | Exit |
 |---|---|---|
-| Provision `hartsock` (admin) + `josiah`/`joshua` (kids) | [#1](https://github.com/hartsock/lava-chicken-os/issues/1) | 3 users; kids non-`wheel`, not in `nugget-tui`; per-user `nugget` icon for all |
+| Provision admin (from GitHub keys) + optional kid users | [#1](https://github.com/hartsock/lava-chicken-os/issues/1) | admin + any `LAVA_KID_USERS`; kids non-`wheel`, not in `nugget-tui`; per-user `nugget` icon for all |
 | First-boot auto-pull of LLM models (progress) | [#2](https://github.com/hartsock/lava-chicken-os/issues/2) | `ollama list` shows the models after first boot; newt starts with no download |
 
 ## Phase 2 — Homelab integration (2nd-boot, authenticated)
@@ -44,8 +44,8 @@ This roadmap *sequences* the design docs; it does not replace them.
 | Item | Issue | Exit |
 |---|---|---|
 | Join Tailscale as `hostname=nugget` | [#3](https://github.com/hartsock/lava-chicken-os/issues/3) | box on the tailnet, remote-manageable |
-| Split-DNS: `home.lab` via the nuc | [#4](https://github.com/hartsock/lava-chicken-os/issues/4) | `*.home.lab` resolves on-box; MagicDNS unbroken |
-| Register `nugget` in homelab dnsmasq (↔ `hartsock/my_home`) | [#5](https://github.com/hartsock/lava-chicken-os/issues/5) | `nugget.home.lab` resolves LAN-wide |
+| Split-DNS for a home domain (wizard step) | [#4](https://github.com/hartsock/lava-chicken-os/issues/4) | `*.<domain>` resolves on-box; MagicDNS unbroken |
+| Wizard prints the DNS line to add on your DNS server | [#5](https://github.com/hartsock/lava-chicken-os/issues/5) | `<box>.<domain>` resolves LAN-wide |
 
 ## Phase 3 — Creative app stack
 

@@ -57,8 +57,8 @@ Decisions locked (2026-07-11):
 - **Base OS parity:** Bazzite and SteamOS both reach the same end state.
 - **Provisioning source:** your GitHub account — public keys from
   `https://github.com/<user>.keys`, username as the box identity.
-- **Remote desktop:** preserve Sunshine/Moonlight, firewalled into the existing
-  homelab scheme (LAN + WireGuard `10.10.0.0/24`, split-DNS `home.lab`).
+- **Remote desktop:** preserve Sunshine/Moonlight, firewalled to trusted subnets
+  only (your LAN + optional VPN subnet; optional split-DNS for a home domain).
 - **Newt:** persona **+** resident systemd user service **+** SSH remote
   entrypoint (no extra network port).
 
@@ -121,7 +121,7 @@ common/                             SINGLE SOURCE OF TRUTH (consumed by both pat
     newt.config.toml                newt config: ollama endpoint, model, persona ref
   sunshine/
     apps.json                       Sunshine app entries (Desktop, Steam Big Picture)
-    ports.env                       canonical port list (from the gnuc runbook)
+    ports.env                       canonical Sunshine port list
   systemd/
     newt-agent.service              resident newt daemon (user service)
   bin/
@@ -178,18 +178,18 @@ nothing else.
   `sshd_config.d/10-lava-chicken.conf`: `PasswordAuthentication no`,
   `PermitRootLogin no`, `KbdInteractiveAuthentication no`. Key-only from day zero.
 - Hostname set to `lava-chicken-<something>` (or the GitHub handle) so it's
-  findable; advertised on `home.lab` via the existing dnsmasq if desired.
+  findable; advertised on your home domain via your LAN DNS if desired.
 
 ### Sunshine / Moonlight (`20-sunshine.sh`)
 Preserve, don't reinvent. On the AMD gaming box Sunshine captures the real
 Gaming Mode surface (KMS/Wayland) — no headless Xorg-dummy dance needed (that
-was gnuc-specific; see `my_home/docs/runbooks/sunshine-moonlight-gnuc.md`).
+only applies to headless servers).
 - **Bazzite** ships Sunshine: enable it (`ujust setup-sunshine` equivalent /
   the Sunshine user service) rather than installing from scratch.
 - **SteamOS**: install the LizardByte Sunshine (Flatpak `dev.lizardbyte.app.Sunshine`
   or `$HOME`-scoped), enable the user service.
-- Firewall: open the canonical ports (`common/sunshine/ports.env`, lifted from
-  the runbook) to `192.168.0.0/24` **and** the WG subnet `10.10.0.0/24`:
+- Firewall: open the canonical ports (`common/sunshine/ports.env`) to your LAN
+  subnet **and** your VPN subnet (RFC1918 defaults; tighten via the wizard):
 
   | 47984/tcp 47989/tcp 47990/tcp 48010/tcp | 47998/udp 47999/udp 48000/udp 48002/udp |
 
@@ -264,5 +264,5 @@ was gnuc-specific; see `my_home/docs/runbooks/sunshine-moonlight-gnuc.md`).
 5. SteamOS Sunshine delivery (Flatpak vs `$HOME` tarball) and whether its user
    service can capture the Gamescope session without extra glue.
 6. Firewall backend per OS (Bazzite = firewalld; SteamOS = iptables/no-ufw) —
-   `20-sunshine.sh` must branch, not assume `ufw` like the gnuc runbook.
+   `20-sunshine.sh` must branch, not assume a single firewall tool.
 ```

@@ -78,7 +78,7 @@ NUGGET_TUI_GID=971
 STATE=/var/lib/lava-chicken              # per-machine writable-persistent state
 TMUX_SOCK=/run/nugget/tmux.sock
 
-# Box + agent display name. Default "nugget"; setup may change it (e.g. kajiblet).
+# Box + agent display name. Default "nugget"; setup may change it (e.g. arcade).
 # NOTE (v0.0.1 scope): this sets the HOSTNAME and the agent's PRESENTED identity
 # (persona name + GECOS). The underlying Unix service account stays `nugget` —
 # a full account rename is a tracked follow-up (see docs/REMOTE-DAYZERO.md).

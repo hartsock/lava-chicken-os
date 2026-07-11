@@ -20,7 +20,7 @@ export LAVA_GH_USER="$GH"
 NAME="$(box_name)"
 plog "box: $NAME   primary user: $(primary_user 2>/dev/null || echo '<none>')   github: ${GH:-<none>}   os: $(os_id)"
 
-# Set the machine hostname to the box name (default nugget; e.g. kajiblet).
+# Set the machine hostname to the box name (default nugget; e.g. arcade).
 if have hostnamectl; then
   hostnamectl set-hostname "$NAME" 2>/dev/null || pwarn "couldn't set hostname to $NAME"
 else

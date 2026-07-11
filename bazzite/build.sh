@@ -9,7 +9,7 @@ echo "[lava-chicken build] baking system layer for user '${LAVA_GITHUB_USER:-har
 # Record the GitHub username the box pulls SSH keys from at first boot.
 mkdir -p "$PAY"
 echo "${LAVA_GITHUB_USER:-hartsock}" > "$PAY/github-user"
-# Box + agent name (default nugget; e.g. kajiblet). Sets hostname + agent identity.
+# Box + agent name (default nugget; e.g. arcade). Sets hostname + agent identity.
 echo "${LAVA_BOX_NAME:-nugget}" > "$PAY/box-name"
 # VERSION is synced into $PAY by CI; also surface it for `bootc`/support.
 [ -r "$PAY/VERSION" ] && install -D -m0644 "$PAY/VERSION" /etc/lava-chicken/version || true

@@ -10,7 +10,7 @@ from the answers. Run it when you're ready; nothing here is baked or automatic.
 
 - **2nd boot, owner-initiated.** Not first-boot, not the image. `lacos setup`.
 - **Interview, don't assume.** Each capability is a yes/no gate; a "no" skips it
-  cleanly. A `home.lab`-less machine never sees a DNS question it must answer.
+  cleanly. A machine with no home domain never sees a DNS question it must answer.
 - **Idempotent + re-runnable.** Answers persist to `/etc/lava-chicken/site.conf`
   (KEY=VALUE, `0644`, **no secrets**); re-running pre-fills them. Secrets
   (Tailscale auth key) are used once and **not stored**.
@@ -24,9 +24,9 @@ from the answers. Run it when you're ready; nothing here is baked or automatic.
 | **Name** | Machine name? *(default `nugget`)* | `hostnamectl set-hostname`; writes `LAVA_BOX_NAME` |
 | **Admin keys** | GitHub user for admin SSH keys? *(default: the primary user)* | refetch `github.com/<u>.keys` → root-owned `authorized_keys` |
 | **Tailscale** | **Do you use Tailscale?** | install (rpm-ostree/official script), `tailscale up --accept-routes --hostname=<name>` — paste an **auth key** *or* open the login URL; `--accept-dns=false` if a home DNS is set |
-| **Home DNS** | **Do you have a home DNS / custom LAN domain?** → domain (e.g. `home.lab`) + DNS server IP (e.g. `192.168.0.104`) | systemd-resolved split-DNS drop-in routing `<domain>` → that server; prints the `dnsmasq` line to add on the server (cross-repo, e.g. `my_home`) |
+| **Home DNS** | **Do you have a home DNS / custom LAN domain?** → domain (e.g. `home.arpa`) + your DNS server IP | systemd-resolved split-DNS drop-in routing `<domain>` → that server; prints the `dnsmasq` line to add on your DNS server |
 | **Streaming** | Low-latency game streaming over WireGuard? | show this box's WG pubkey to add on the hub (`wg-add-peer.sh`); paste the peer config. (Sunshine itself is already set up — reminds you to pair once.) |
-| **Kids** | Kid usernames + autologin target? *(default `josiah joshua`, autologin first)* | reconcile accounts + SDDM autologin |
+| **Kids** | Kid usernames + autologin target? *(default: none; e.g. `kid1 kid2`, autologin first)* | reconcile accounts + SDDM autologin |
 | **Models** | Model set? *(default `qwen2.5-coder:7b` + `nomic-embed-text`)* | write `/etc/lava-chicken/models.conf`; `lacos models` |
 
 Unknown/`no` answers are recorded so a re-run doesn't re-ask what you've settled.
@@ -42,12 +42,10 @@ Unknown/`no` answers are recorded so a re-run doesn't re-ask what you've settled
 
 ## How this maps to the roadmap
 
-This wizard is the **delivery mechanism for Phase 2 (homelab)**:
-[#3 Tailscale](https://github.com/hartsock/lava-chicken-os/issues/3) and
-[#4 split-DNS](https://github.com/hartsock/lava-chicken-os/issues/4) become wizard
-*steps*; [#5 dnsmasq](https://github.com/hartsock/lava-chicken-os/issues/5) is the
-cross-repo line the wizard **prints for you to apply** on the DNS server. The
-wizard keeps the image free of any one homelab's particulars.
+This wizard is the **delivery mechanism for site-specific setup** (Tailscale,
+split-DNS, streaming): each becomes an optional wizard *step*, and the cross-host
+DNS line is one the wizard **prints for you to apply** on your own DNS server. The
+wizard keeps the image free of any one network's particulars.
 
 ## Out of scope (for the first cut)
 

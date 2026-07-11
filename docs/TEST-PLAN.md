@@ -12,7 +12,7 @@ and the on-hardware checklist, not in prose.
 | **0 — Static** | `shellcheck` + `bash -n` all scripts; `visudo -cf` sudoers; YAML lint; `ksvalidator` kickstart; markdown link check | GH Actions (no VM) | **every push / PR** |
 | **1 — Image smoke** | build qcow2 → boot headless under **KVM** → assert the nugget layer → poweroff | GH Actions (x86_64, `/dev/kvm`) | **every push** |
 | **2 — Acceptance (BAT/UAT)** | dual-boot safety, provision idempotency, per-user/no-root, model-preload, remote-access | GH Actions VM (where automatable) | **nightly** |
-| **3 — VM rehearsal** | drive Blivet-GUI against the synthetic fake-Windows disk | Mac/gnuc, [`test/dualboot-vm/`](../test/dualboot-vm/README.md) | pre-hardware |
+| **3 — VM rehearsal** | drive Blivet-GUI against the synthetic fake-Windows disk | local VM, [`test/dualboot-vm/`](../test/dualboot-vm/README.md) | pre-hardware |
 | **4 — On-hardware** | the real box, both bases | manual checklist | **release gate (v0.1.0)** |
 
 ## Tier 0 — Static (seconds, gates every PR)
@@ -51,7 +51,7 @@ Repeat until fluent. (Proves the *clicks*, not "Windows re-boots".)
 - [ ] Resident nugget attach over SSH (admin only); propose-&-approve sudo.
 - [ ] Sunshine pairing + Moonlight stream (LAN + WireGuard).
 - [ ] **Dual-boot: Windows still boots** via the firmware boot menu; `ujust regenerate-grub` best-effort.
-- [ ] Homelab: `*.home.lab` resolves via nuc; box reachable as `nugget` on the tailnet.
+- [ ] Homelab: `*.<your-home-domain>` resolves via your LAN DNS; box reachable on your VPN/tailnet.
 - [ ] **Models present, first boot smooth** (no multi-GB download wait).
 - [ ] SteamOS parity: `bootstrap.sh` reaches the same end-state.
 

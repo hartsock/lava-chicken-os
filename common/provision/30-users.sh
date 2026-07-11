@@ -9,7 +9,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common/provision/lib-provision.sh
 source "$HERE/lib-provision.sh"
 
-KIDS="${LAVA_KID_USERS:-josiah joshua}"
+# Kid accounts are opt-in: set LAVA_KID_USERS="alice bob" (build arg or
+# /etc/lava-chicken/site.conf) to create standard passwordless users. The
+# default is empty — an admin-only box until an operator names kid users.
+KIDS="${LAVA_KID_USERS:-}"
 AUTOLOGIN="${LAVA_AUTOLOGIN_USER:-}"
 
 for kid in $KIDS; do

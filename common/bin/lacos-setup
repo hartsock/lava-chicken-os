@@ -74,9 +74,9 @@ if ask_yesno "Do you use Tailscale (mesh VPN / remote access)?"; then
 else save LAVA_TAILSCALE no; fi
 
 # 4) home DNS? --------------------------------------------------------------
-if ask_yesno "Do you have a home DNS / custom LAN domain (e.g. home.lab)?"; then
-  dom="$(ask "LAN domain?" "${LAVA_LAN_DOMAIN:-home.lab}")"
-  dns="$(ask "DNS server IP that serves $dom?" "${LAVA_LAN_DNS:-192.168.0.104}")"
+if ask_yesno "Do you have a home DNS / custom LAN domain (e.g. home.arpa)?"; then
+  dom="$(ask "LAN domain?" "${LAVA_LAN_DOMAIN:-home.arpa}")"
+  dns="$(ask "DNS server IP that serves $dom?" "${LAVA_LAN_DNS:-}")"
   sudo install -d -m0755 /etc/systemd/resolved.conf.d
   printf '[Resolve]\nDNS=%s\nDomains=~%s\n' "$dns" "$dom" \
     | sudo tee /etc/systemd/resolved.conf.d/10-lava-chicken-lan.conf >/dev/null

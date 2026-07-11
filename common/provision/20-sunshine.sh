@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Preserve/enable Sunshine and firewall it into the homelab scheme
-# (LAN + WireGuard). Pairing stays a manual one-time step (security boundary).
+# Preserve/enable Sunshine and firewall it to trusted LAN/VPN subnets only.
+# Pairing stays a manual one-time step (security boundary).
 #
 # On this AMD gaming box Sunshine captures the real Gamescope/KMS surface, so the
-# gnuc headless Xorg-dummy dance does NOT apply here. See docs/REMOTE-DAYZERO.md.
+# headless-server Xorg-dummy dance does NOT apply here. See docs/REMOTE-DAYZERO.md.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common/provision/lib-provision.sh

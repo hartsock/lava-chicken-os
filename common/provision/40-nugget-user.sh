@@ -67,7 +67,7 @@ fi
 rm -f "$tmp"
 
 # --- presented identity + avatar --------------------------------------------
-# GECOS reflects the box name (default nugget; e.g. "kajiblet agent"). The Unix
+# GECOS reflects the box name (default nugget; e.g. "arcade agent"). The Unix
 # account name stays `nugget` in this pass (full rename is a tracked follow-up).
 NAME="$(box_name)"
 usermod -c "${NAME} agent" nugget 2>/dev/null || true

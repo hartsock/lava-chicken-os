@@ -20,8 +20,9 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
   `/etc/lava-chicken/site.conf`; idempotent, whiptail TUI + `read` fallback, runs
   local or over SSH. Admin desktop launcher + a login nudge until done. Keeps the
   image generic and secret-free. See docs/SETUP-WIZARD.md.
-- **Multi-user accounts** (#1) — kid users (`josiah`/`joshua`) created passwordless
-  (click-to-switch), never in `wheel`/sudoers; admin = the OOBE primary user;
+- **Multi-user accounts** (#1) — optional kid users (`LAVA_KID_USERS`, e.g.
+  `kid1 kid2`) created passwordless (click-to-switch), never in `wheel`/sudoers;
+  admin = the OOBE primary user;
   SDDM autologins into a default kid session (KDE fast-user-switch to change).
   Configurable via `LAVA_KID_USERS` / `LAVA_AUTOLOGIN_USER`.
 - **First-boot LLM model pre-load** (#2) — `lava-chicken-models.service` pulls
@@ -58,7 +59,7 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
   "Lava Chicken OS (LaCOS)" so `neofetch` shows it (Bazzite image).
 - **Configurable box name** — `LAVA_BOX_NAME` (default `nugget`) sets the
   hostname and the agent's presented identity (persona name + GECOS), e.g.
-  `kajiblet`. The underlying Unix service account stays `nugget` in this pass;
+  `arcade`. The underlying Unix service account stays `nugget` in this pass;
   full account rename is a tracked follow-up.
 
 ### Security notes

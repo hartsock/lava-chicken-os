@@ -59,7 +59,8 @@ done
 #    `systemctl preset` applies here (preferred over enable for baked units).
 systemctl enable sshd.service
 systemctl enable lava-chicken-firstboot.service
-systemctl preset lava-chicken-boot-sound.service nugget-agent-tmux.service 2>/dev/null || true
+systemctl preset lava-chicken-boot-sound.service nugget-agent-tmux.service \
+  lava-chicken-models.service lava-chicken-apps.service 2>/dev/null || true
 
 # --- LaCOS branding in os-release (neofetch / `cat /etc/os-release` flex) ----
 # Rebrand PRETTY_NAME + add LaCOS fields; keep ID (Bazzite-derived) so nothing

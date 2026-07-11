@@ -4,7 +4,9 @@
 # the running machine via lava-chicken-firstboot.service — see docs/REMOTE-DAYZERO.md.
 
 FROM ghcr.io/ublue-os/bazzite:stable
-# VERIFY: KDE desktop / AMD is the default 'bazzite' image; confirm the tag/variant.
+# Base 'bazzite' (no -nvidia / -deck suffix) IS the KDE Plasma + Mesa/AMD desktop
+# variant — the correct base for a KDE + AMD box. (-nvidia adds the NVIDIA driver;
+# -deck targets handhelds.) Pin by @sha256 digest for reproducibility once green.
 
 # Public GitHub username whose keys seed SSH access. No secrets — just a handle.
 ARG LAVA_GITHUB_USER=hartsock
@@ -20,7 +22,11 @@ COPY system_files/ /
 # 2. Build-time enablement.
 COPY build.sh /tmp/build.sh
 RUN LAVA_GITHUB_USER="${LAVA_GITHUB_USER}" LAVA_BOX_NAME="${LAVA_BOX_NAME}" /tmp/build.sh && \
-    rm -f /tmp/build.sh && \
-    ostree container commit
-# VERIFY: modern bootc images may prefer `bootc container lint` over
-# `ostree container commit`; confirm against current uBlue template.
+    rm -f /tmp/build.sh
+
+# 3. Finalize: lint the composed bootc image. This replaces the deprecated
+#    `ostree container commit` and matches the current uBlue image-template
+#    (its Containerfile ends with `RUN bootc container lint`). If the very first
+#    run trips a hard lint error you want to defer, temporarily comment this out —
+#    it validates the image, it does not build it.
+RUN bootc container lint

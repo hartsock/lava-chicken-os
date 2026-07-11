@@ -1,0 +1,18 @@
+[Unit]
+Description=LaCOS — install creative + gaming Flatpak apps (first boot)
+Documentation=https://github.com/hartsock/lava-chicken-os
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/lava-chicken/apps.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/share/lava-chicken/bin/lacos-install-apps
+# Stamp only on success (partial installs retry next boot).
+ExecStartPost=/bin/sh -c 'install -d -m0755 /var/lib/lava-chicken && date -u +%%FT%%TZ > /var/lib/lava-chicken/apps.done'
+TimeoutStartSec=infinity
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

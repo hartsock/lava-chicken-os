@@ -43,6 +43,7 @@ run_step 30-users.sh       || rc=1   # kid accounts (passwordless) + autologin
 run_step 40-nugget-user.sh || rc=1   # dedicated nugget account (propose-&-approve)
 run_step 45-nugget-tmux.sh || rc=1   # resident tmux + all-user button + killswitch
 run_step 50-nugget-agent.sh|| rc=1   # ollama + latest newt release + persona + start
+run_step 60-apps.sh        || rc=1   # creative + gaming apps (background install)
 
 if [ "$rc" -eq 0 ]; then
   date -u +%FT%TZ > "$STAMP"

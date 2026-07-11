@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# lacos setup — the 2nd-boot wizard. Interviews the box for site particulars
+# ("Do you have Tailscale? A home DNS?") and applies them. Idempotent +
+# re-runnable. Run as an admin; uses sudo for system changes. Non-secret answers
+# persist to /etc/lava-chicken/site.conf. See docs/SETUP-WIZARD.md.
+set -uo pipefail
+
+SITE=/etc/lava-chicken/site.conf
+STAMP=/etc/lava-chicken/setup.done
+# shellcheck source=/dev/null
+[ -r "$SITE" ] && . "$SITE" 2>/dev/null || true      # prefill prior answers
+
+TUI=""; command -v whiptail >/dev/null 2>&1 && TUI=whiptail
+say() { echo "[setup] $*"; }
+
+ask_yesno() { # $1 prompt -> 0 yes / 1 no
+  if [ -n "$TUI" ]; then whiptail --title "LaCOS setup" --yesno "$1" 10 72
+  else read -r -p "$1 [y/N] " a; [[ "${a:-}" =~ ^[Yy] ]]; fi
+}
+ask() { # $1 prompt  $2 default -> echoes value
+  if [ -n "$TUI" ]; then whiptail --title "LaCOS setup" --inputbox "$1" 10 72 "${2:-}" 3>&1 1>&2 2>&3
+  else read -r -p "$1 [${2:-}]: " a; echo "${a:-${2:-}}"; fi
+}
+save() { # key value -> persist non-secret answer
+  sudo install -d -m0755 /etc/lava-chicken
+  sudo sed -i "/^$1=/d" "$SITE" 2>/dev/null || true
+  printf '%s=%q\n' "$1" "$2" | sudo tee -a "$SITE" >/dev/null
+}
+
+sudo -v || { echo "This wizard needs sudo — run it as an admin." >&2; exit 1; }
+say "LaCOS setup — configure this box's particulars. Ctrl-C to bail; safe to re-run."
+
+# 1) name -------------------------------------------------------------------
+NAME="$(ask "Machine / agent name?" "${LAVA_BOX_NAME:-$(hostname)}")"
+[ -n "$NAME" ] && { sudo hostnamectl set-hostname "$NAME" 2>/dev/null && say "hostname -> $NAME"; save LAVA_BOX_NAME "$NAME"; }
+
+# 2) admin SSH keys from GitHub --------------------------------------------
+GH="$(ask "GitHub username for admin SSH keys (blank to skip)?" "${LAVA_GH_USER:-}")"
+if [ -n "$GH" ]; then
+  keys="$(curl -fsSL "https://github.com/${GH}.keys" 2>/dev/null || true)"
+  if [ -n "${keys//[$'\n\r\t ']/}" ]; then
+    sudo install -d -m0700 -o "$USER" -g "$USER" "$HOME/.ssh"
+    b="# >>> lava-chicken github:${GH} >>>"; e="# <<< lava-chicken github:${GH} <<<"
+    tmp="$(mktemp)"; touch "$HOME/.ssh/authorized_keys"
+    awk -v b="$b" -v e="$e" '$0==b{s=1} !s{print} $0==e{s=0}' "$HOME/.ssh/authorized_keys" >"$tmp"
+    { echo "$b"; echo "$keys"; echo "$e"; } >>"$tmp"
+    install -m0600 "$tmp" "$HOME/.ssh/authorized_keys"; rm -f "$tmp"
+    say "admin SSH keys refreshed from github.com/$GH"
+  else say "no keys at github.com/$GH — skipped"; fi
+  save LAVA_GH_USER "$GH"
+fi
+
+# 3) Tailscale? -------------------------------------------------------------
+if ask_yesno "Do you use Tailscale (mesh VPN / remote access)?"; then
+  if ! command -v tailscale >/dev/null 2>&1; then
+    say "installing tailscale ..."
+    sudo rpm-ostree install --apply-live --idempotent tailscale 2>/dev/null \
+      || { curl -fsSL https://tailscale.com/install.sh | sudo sh; } \
+      || say "couldn't install tailscale automatically — see https://tailscale.com/download/linux"
+    sudo systemctl enable --now tailscaled 2>/dev/null || true
+  fi
+  if command -v tailscale >/dev/null 2>&1; then
+    key="$(ask "Tailscale auth key (blank = open a browser login link)?" "")"
+    # --accept-dns=false so a home DNS (below) isn't shadowed by MagicDNS.
+    if [ -n "$key" ]; then
+      sudo tailscale up --accept-routes --accept-dns=false --hostname="$NAME" --authkey="$key" \
+        && say "joined the tailnet as $NAME"
+    else
+      say "Follow the login URL Tailscale prints:"
+      sudo tailscale up --accept-routes --accept-dns=false --hostname="$NAME"
+    fi
+  fi
+  save LAVA_TAILSCALE yes
+else save LAVA_TAILSCALE no; fi
+
+# 4) home DNS? --------------------------------------------------------------
+if ask_yesno "Do you have a home DNS / custom LAN domain (e.g. home.lab)?"; then
+  dom="$(ask "LAN domain?" "${LAVA_LAN_DOMAIN:-home.lab}")"
+  dns="$(ask "DNS server IP that serves $dom?" "${LAVA_LAN_DNS:-192.168.0.104}")"
+  sudo install -d -m0755 /etc/systemd/resolved.conf.d
+  printf '[Resolve]\nDNS=%s\nDomains=~%s\n' "$dns" "$dom" \
+    | sudo tee /etc/systemd/resolved.conf.d/10-lava-chicken-lan.conf >/dev/null
+  sudo systemctl restart systemd-resolved 2>/dev/null || true
+  say "split-DNS: *.$dom -> $dns"
+  say "ACTION on your DNS server (e.g. dnsmasq): add  address=/$NAME.$dom/<this box's IP>"
+  save LAVA_LAN_DOMAIN "$dom"; save LAVA_LAN_DNS "$dns"
+else save LAVA_LAN_DOMAIN ""; fi
+
+# 5) WireGuard streaming? ---------------------------------------------------
+if ask_yesno "Use WireGuard for low-latency game streaming (Sunshine/Moonlight)?"; then
+  say "On your WG hub, add this box as a peer (e.g. wg-add-peer.sh)."
+  say "Sunshine is already running — pair Moonlight at https://$NAME:47990"
+  save LAVA_WIREGUARD yes
+fi
+
+# 6) models -----------------------------------------------------------------
+say "LLM models: 'lacos models' to (re)pull; edit /etc/lava-chicken/models.conf to change the set."
+
+date -u +%FT%TZ | sudo tee "$STAMP" >/dev/null
+say "✓ setup complete. Answers saved to $SITE — re-run 'lacos setup' any time."

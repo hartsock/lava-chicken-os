@@ -22,6 +22,7 @@ usage: lacos <command>
   status        services + resident agent + version
   attach        attach the resident nugget agent session (the "nugget" button)
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
+  setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
   models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
   apps          install/refresh the creative + gaming Flatpak apps
   version       print the OS version
@@ -57,6 +58,11 @@ case "${1:-help}" in
     shift
     if a="$(find_bin lacos-install-apps)"; then exec "$a" "$@"
     else echo "lacos-install-apps not found" >&2; exit 1; fi
+    ;;
+  setup)
+    shift
+    if s="$(find_bin lacos-setup)"; then exec "$s" "$@"
+    else echo "lacos-setup not found" >&2; exit 1; fi
     ;;
   version) ver ;;
   help|-h|--help) usage ;;

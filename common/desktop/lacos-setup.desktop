@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Set up LaCOS
+GenericName=Box setup wizard
+Comment=Configure this box — name, Tailscale, home DNS, game streaming
+Exec=konsole --hide-menubar -e lacos setup
+Icon=preferences-system
+Terminal=false
+Categories=System;Settings;
+Keywords=setup;tailscale;dns;wizard;lacos;homelab;

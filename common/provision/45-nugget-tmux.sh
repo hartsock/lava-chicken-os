@@ -36,9 +36,11 @@ systemd-tmpfiles --create "$TMPF" 2>/dev/null || pwarn "tmpfiles --create failed
 if [ "$OS" != bazzite ]; then
   # SteamOS: /usr is read-only -> stage code under persistent /var, units in /etc.
   install -d -m0755 "$STATE/bin" "$STATE/libexec" "$STATE/persona"
-  for b in nugget-agent-run nugget-agent-loop attach-nugget nugget-agentctl lacos nugget; do
+  for b in nugget-agent-run nugget-agent-loop attach-nugget nugget-agentctl lacos nugget \
+           lacos-pull-models lacos-install-apps lacos-setup; do
     install -m0755 "$HERE/../bin/$b" "$STATE/bin/$b"
   done
+  install -D -m0644 "$HERE/../desktop/lacos-setup.desktop" /etc/skel/.local/share/applications/lacos-setup.desktop
   ln -sf "$STATE/bin/lacos"  /usr/local/bin/lacos  2>/dev/null || true
   ln -sf "$STATE/bin/nugget" /usr/local/bin/nugget 2>/dev/null || true
   install -m0755 "$HERE/../libexec/nugget-grant-tui" /usr/libexec/nugget-grant-tui 2>/dev/null \

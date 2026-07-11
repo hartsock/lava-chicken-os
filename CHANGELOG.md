@@ -11,6 +11,12 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
 ## [Unreleased]
 
 ### Added
+- **2nd-boot setup wizard** (#15) — `lacos setup` interviews the box ("Do you use
+  Tailscale? A home DNS?") and configures name, admin keys, Tailscale, split-DNS,
+  and streaming from the answers; non-secret answers persist to
+  `/etc/lava-chicken/site.conf`; idempotent, whiptail TUI + `read` fallback, runs
+  local or over SSH. Admin desktop launcher + a login nudge until done. Keeps the
+  image generic and secret-free. See docs/SETUP-WIZARD.md.
 - **Multi-user accounts** (#1) — kid users (`josiah`/`joshua`) created passwordless
   (click-to-switch), never in `wheel`/sudoers; admin = the OOBE primary user;
   SDDM autologins into a default kid session (KDE fast-user-switch to change).

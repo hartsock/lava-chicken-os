@@ -49,6 +49,10 @@ install -D -m0755 "$PAY/bin/nugget"                      /usr/bin/nugget
 # reference them there directly.
 install -D -m0644 "$PAY/desktop/lacos-setup.desktop"     /usr/share/applications/lacos-setup.desktop
 install -D -m0644 "$PAY/profile.d/lava-chicken.sh"       /etc/profile.d/lava-chicken.sh
+# Default wallpaper: bake to a standard KDE location + a first-login autostart
+# that applies it once (so it's the default for every user, incl. the kids).
+[ -r "$PAY/brand/wallpaper.png" ] && install -D -m0644 "$PAY/brand/wallpaper.png" /usr/share/wallpapers/lava-chicken/wallpaper.png
+install -D -m0644 "$PAY/autostart/lava-chicken-wallpaper.desktop" /etc/skel/.config/autostart/lava-chicken-wallpaper.desktop
 for u in lava-chicken-boot-sound.service nugget-agent-tmux.service nugget-agent-grant@.service \
          lava-chicken-models.service lava-chicken-apps.service; do
   install -D -m0644 "$PAY/systemd/$u" "/usr/lib/systemd/system/$u"

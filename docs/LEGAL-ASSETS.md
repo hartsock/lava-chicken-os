@@ -14,9 +14,10 @@ What CAN live in the repo:
 
 - Original "blocky/voxel-style" art we generate ourselves
   (`assets/generated/make_wallpaper.py`) — inspired-by is fine, copies are not.
-- **The Nugget mascot** (`assets/brand/nugget.png` + variants) — original
-  character art supplied by the project owner, used for the boot splash and the
-  agent's avatar. It riffs on a Minecraft *aesthetic* (blocky, a Steve-style
+- **The Nugget mascot + default wallpaper** (`assets/brand/nugget.png`,
+  `wallpaper.png` + variants) — original character/scene art supplied by the
+  project owner, used for the boot splash, the agent's avatar, and the default
+  desktop wallpaper. It riffs on a Minecraft *aesthetic* (blocky, a Steve-style
   cap) but is an original character, not a Mojang asset. If you fork and are
   wary of the resemblance, swap in your own mascot at the same paths.
 - All scripts, docs, and configs (MIT).

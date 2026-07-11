@@ -65,6 +65,12 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
   [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -d "$uhome" ] || continue
   install -d -m0755 -o "$uname" "$uhome/.newt/personas"
   install -m0644 -o "$uname" "$STATE/persona/nugget.md" "$uhome/.newt/personas/nugget.md"
+  # default wallpaper on first login (Bazzite; SteamOS applies it via scripts/10)
+  if [ "$OS" = bazzite ] && [ -r "$HERE/../autostart/lava-chicken-wallpaper.desktop" ]; then
+    install -d -m0755 -o "$uname" "$uhome/.config/autostart"
+    install -m0644 -o "$uname" "$HERE/../autostart/lava-chicken-wallpaper.desktop" \
+      "$uhome/.config/autostart/lava-chicken-wallpaper.desktop"
+  fi
 done < <(getent passwd)
 
 # --- the "nugget" icon on every user's desktop (per-user launch) -------------

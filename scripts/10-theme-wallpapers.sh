@@ -9,9 +9,16 @@ for f in "$USER_ASSETS"/wallpaper*.png "$USER_ASSETS"/wallpaper*.jpg; do
   [ -f "$f" ] && WALLPAPER="$f" && break
 done
 
-# 2) otherwise generate original blocky art
+# 2) the default LaCOS brand wallpaper (baked in the image, or in-repo)
 if [ -z "$WALLPAPER" ]; then
-  log "No user wallpaper found; generating original blocky art..."
+  for f in /usr/share/lava-chicken/brand/wallpaper.png "$REPO_ROOT/assets/brand/wallpaper.png"; do
+    [ -f "$f" ] && WALLPAPER="$f" && break
+  done
+fi
+
+# 3) last resort — generate original blocky art
+if [ -z "$WALLPAPER" ]; then
+  log "No user or brand wallpaper found; generating original blocky art..."
   mkdir -p "$GEN_OUT"
   python3 "$REPO_ROOT/assets/generated/make_wallpaper.py" "$GEN_OUT/lava-chicken-wall.png"
   WALLPAPER="$GEN_OUT/lava-chicken-wall.png"

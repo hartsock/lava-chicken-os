@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Apply the LaCOS default wallpaper ONCE per user (first KDE login). Self-disables
+# via a stamp so the user's own later wallpaper choices stick. Run by the
+# lava-chicken-wallpaper autostart entry.
+set -u
+STAMP="$HOME/.config/lava-chicken/wallpaper.done"
+[ -e "$STAMP" ] && exit 0
+
+for w in /usr/share/lava-chicken/brand/wallpaper.png \
+         /var/lib/lava-chicken/brand/wallpaper.png \
+         /usr/share/wallpapers/lava-chicken/wallpaper.png; do
+  [ -r "$w" ] || continue
+  if command -v plasma-apply-wallpaperimage >/dev/null 2>&1; then
+    plasma-apply-wallpaperimage "$w" && { mkdir -p "$HOME/.config/lava-chicken"; : > "$STAMP"; }
+  fi
+  break
+done
+exit 0

@@ -37,9 +37,10 @@ run_step() {
 }
 
 rc=0
-run_step 10-ssh-github.sh  || rc=1   # human key-only SSH (Sunshine untouched)
+run_step 10-ssh-github.sh  || rc=1   # admin (primary) key-only SSH (Sunshine untouched)
 run_step 20-sunshine.sh    || rc=1   # remote desktop preserved + firewalled
-run_step 40-nugget-user.sh || rc=1   # dedicated sudo-capable nugget account
+run_step 30-users.sh       || rc=1   # kid accounts (passwordless) + autologin
+run_step 40-nugget-user.sh || rc=1   # dedicated nugget account (propose-&-approve)
 run_step 45-nugget-tmux.sh || rc=1   # resident tmux + all-user button + killswitch
 run_step 50-nugget-agent.sh|| rc=1   # ollama + latest newt release + persona + start
 

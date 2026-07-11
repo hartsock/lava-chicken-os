@@ -11,6 +11,10 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
 ## [Unreleased]
 
 ### Added
+- **Multi-user accounts** (#1) — kid users (`josiah`/`joshua`) created passwordless
+  (click-to-switch), never in `wheel`/sudoers; admin = the OOBE primary user;
+  SDDM autologins into a default kid session (KDE fast-user-switch to change).
+  Configurable via `LAVA_KID_USERS` / `LAVA_AUTOLOGIN_USER`.
 - **First-boot LLM model pre-load** (#2) — `lava-chicken-models.service` pulls
   `qwen2.5-coder:7b` + `nomic-embed-text` on first boot with progress (stamped on
   success, retries otherwise), so the agent is instant. Re-run/check with

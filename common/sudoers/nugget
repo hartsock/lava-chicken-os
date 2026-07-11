@@ -1,0 +1,30 @@
+# /etc/sudoers.d/nugget — installed 0440 root:root, validated with `visudo -cf`.
+#
+# nugget is a passwordless service account (no secret is stored anywhere, per the
+# repo's no-secrets rule), so NOPASSWD is the only workable mode. The owner chose
+# FULL autonomous sudo. The "ask before acting" restraint lives in the newt
+# PERSONA, not here — treat this file as a loaded gun.
+#
+# Guardrails that COEXIST with NOPASSWD:ALL (speed bumps + observability, not
+# containment — newt OCAP is the eventual real boundary, see newt-agent#1090):
+#   - every nugget sudo call is logged (Defaults below) to a dedicated file.
+#   - the remote-access + kill-switch config is chattr +i elsewhere; keeping
+#     `chattr` usable by nugget defeats that, but we do not carve it out here
+#     because the owner chose full sudo. Documented in docs/REMOTE-DAYZERO.md.
+#
+# Audit logging for nugget's sudo — full input+output transcript (adopted from
+# the parallel build). Dirs are created by tmpfiles.d/lava-chicken.conf.
+Defaults:nugget log_input, log_output, iolog_dir="/var/log/sudo-io/nugget"
+Defaults:nugget logfile="/var/log/nugget-sudo.log", syslog=authpriv
+Defaults:nugget !visiblepw
+
+nugget ALL=(ALL) NOPASSWD: ALL
+
+# --- Restricted alternative (defense-in-depth; comment the line above and
+#     uncomment this to bound the blast radius to safe sysadmin commands) -------
+# Cmnd_Alias NUGGET_OK = /usr/bin/systemctl, /usr/bin/rpm-ostree, /usr/bin/dnf, \
+#                        /usr/bin/pacman, /usr/bin/journalctl, /usr/bin/podman
+# Cmnd_Alias NUGGET_DENY = /bin/su, /usr/bin/su, /usr/bin/sudo, /usr/sbin/visudo, \
+#                          /usr/bin/sudoedit, /usr/bin/chattr, /usr/bin/tee, \
+#                          /bin/dd, /usr/bin/dd, /bin/bash, /bin/sh, /usr/bin/vi
+# nugget ALL=(ALL) NOPASSWD: NUGGET_OK, !NUGGET_DENY

@@ -3,7 +3,10 @@
 Target machine: old Windows 10 desktop, no TPM, AMD GPU.
 
 ## Phase 0 — Prep (on any machine)
-- [ ] Back up anything worth keeping from the Windows install (it will be erased).
+- [ ] Back up anything worth keeping from Windows **first**, regardless of path.
+      A whole-disk install erases Windows; **dual-boot keeps it** — you shrink
+      the Windows partition and install alongside. Dual-boot is **Bazzite only**
+      (SteamOS's installer is whole-disk). See [INSTALL-DUALBOOT.md](INSTALL-DUALBOOT.md).
 - [ ] Check the AMD GPU generation. ROCm/ollama dropped gfx900/gfx906 (Vega 10/20);
       RDNA1+ (RX 5000+) is the comfortable floor for GPU inference. Older cards:
       ollama falls back to CPU, or use llama.cpp Vulkan.

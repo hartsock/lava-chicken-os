@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LaCOS default wallpaper
+Comment=Set the Lava Chicken OS wallpaper on first login (once)
+Exec=/usr/share/lava-chicken/bin/lacos-set-wallpaper
+X-KDE-autostart-phase=2
+OnlyShowIn=KDE;
+NoDisplay=true

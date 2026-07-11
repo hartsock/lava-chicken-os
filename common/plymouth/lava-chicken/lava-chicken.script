@@ -1,0 +1,81 @@
+# Lava Chicken OS — Plymouth boot splash (script module).
+# Shows the nugget mascot + a pre-rendered "Lava Chicken OS" title (title.png is
+# used instead of Image.Text so the title never depends on a font being present
+# in the initramfs). A gentle ember pulse animates the logo while booting.
+
+Window.SetBackgroundTopColor(0.07, 0.035, 0.02);
+Window.SetBackgroundBottomColor(0.02, 0.01, 0.005);
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+
+# --- nugget logo: scale to ~42% of screen height, centered slightly high ---
+logo.orig = Image("nugget.png");
+logo_h = screen_h * 0.42;
+logo_w = logo.orig.GetWidth() * logo_h / logo.orig.GetHeight();
+logo.image = logo.orig.Scale(logo_w, logo_h);
+logo.sprite = Sprite(logo.image);
+logo.x = screen_w / 2 - logo_w / 2;
+logo.y = screen_h / 2 - logo_h / 2 - screen_h * 0.07;
+logo.sprite.SetX(logo.x);
+logo.sprite.SetY(logo.y);
+logo.sprite.SetZ(10);
+
+# --- title image "Lava Chicken OS": scale to ~50% of screen width ---
+title.orig = Image("title.png");
+title_w = screen_w * 0.5;
+if (title_w > title.orig.GetWidth()) {
+  title_w = title.orig.GetWidth();
+}
+title_h = title.orig.GetHeight() * title_w / title.orig.GetWidth();
+title.image = title.orig.Scale(title_w, title_h);
+title.sprite = Sprite(title.image);
+title.x = screen_w / 2 - title_w / 2;
+title.y = logo.y + logo_h + screen_h * 0.015;
+title.sprite.SetX(title.x);
+title.sprite.SetY(title.y);
+title.sprite.SetZ(10);
+
+# --- status line (best-effort text; may be blank if no font in initrd) ---
+status.sprite = Sprite();
+status.sprite.SetZ(10);
+fun set_status(msg) {
+  status.image = Image.Text(msg, 0.85, 0.80, 0.72);
+  status.sprite.SetImage(status.image);
+  status.sprite.SetX(screen_w / 2 - status.image.GetWidth() / 2);
+  status.sprite.SetY(title.y + title_h + screen_h * 0.03);
+}
+
+# --- gentle ember opacity pulse on the logo while booting ---
+tick = 0;
+fun on_refresh() {
+  tick++;
+  logo.sprite.SetOpacity(0.88 + 0.12 * Math.Sin(tick / 14));
+}
+Plymouth.SetRefreshFunction(on_refresh);
+
+fun on_message(text) {
+  set_status(text);
+}
+Plymouth.SetMessageFunction(on_message);
+
+# --- LUKS / login password prompt (bullets shown as asterisks) ---
+fun on_password(prompt, bullets) {
+  set_status(prompt);
+  dots = "";
+  i = 0;
+  while (i < bullets) {
+    dots = dots + "*";
+    i = i + 1;
+  }
+  pw.image = Image.Text(dots, 1.0, 1.0, 1.0);
+  pw.sprite = Sprite(pw.image);
+  pw.sprite.SetX(screen_w / 2 - pw.image.GetWidth() / 2);
+  pw.sprite.SetY(title.y + title_h + screen_h * 0.09);
+  pw.sprite.SetZ(11);
+}
+Plymouth.SetDisplayPasswordFunction(on_password);
+
+fun on_normal() {
+}
+Plymouth.SetDisplayNormalFunction(on_normal);

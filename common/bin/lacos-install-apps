@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Install the LaCOS creative + gaming Flatpak apps system-wide (all users, incl
+# kids). Idempotent. Run by lava-chicken-apps.service on first boot, or by hand
+# via `lacos apps`. App list from /etc/lava-chicken/apps.conf, else the default.
+set -uo pipefail
+
+CONF=/etc/lava-chicken/apps.conf
+# Art (Adobe alternatives) · streaming · video editing · Minecraft.
+DEFAULT_APPS="\
+org.kde.krita \
+org.gimp.GIMP \
+org.inkscape.Inkscape \
+com.obsproject.Studio \
+org.kde.kdenlive \
+org.shotcut.Shotcut \
+org.prismlauncher.PrismLauncher"
+
+if [ -r "$CONF" ]; then
+  APPS="$(grep -vE '^\s*(#|$)' "$CONF" | tr '\n' ' ')"
+else
+  APPS="$DEFAULT_APPS"
+fi
+
+command -v flatpak >/dev/null 2>&1 || { echo "[apps] flatpak not found" >&2; exit 1; }
+flatpak remote-add --if-not-exists flathub \
+  https://dl.flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
+
+rc=0
+for app in $APPS; do
+  if flatpak info --system "$app" >/dev/null 2>&1; then
+    echo "[apps] ✓ $app present"; continue
+  fi
+  echo "[apps] ↓ installing $app ..."
+  flatpak install --system -y --noninteractive flathub "$app" \
+    || { echo "[apps] ✗ FAILED $app (retry next boot)" >&2; rc=1; }
+done
+
+# AMD hardware H.264/H.265 encode for OBS on Linux (AMF is Windows-only; VAAPI is
+# the Linux path). VERIFY the runtime branch matches OBS's on this Bazzite build.
+flatpak install --system -y --noninteractive flathub \
+  org.freedesktop.Platform.GStreamer.gstreamer-vaapi 2>/dev/null \
+  || echo "[apps] note: add the gstreamer-vaapi runtime for OBS hw encode"
+
+[ "$rc" -eq 0 ] && echo "[apps] all creative apps present."
+exit "$rc"

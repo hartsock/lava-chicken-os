@@ -1,0 +1,276 @@
+name: build-image
+
+# Builds the lava-chicken-os bootc image (Bazzite base) and pushes it to GHCR,
+# then generates an Anaconda install ISO and a qcow2 VM disk as artifacts.
+#
+# Pattern follows the current uBlue image-template (checked 2026-07-11):
+#   plain `podman build` -> docker/login-action -> `sudo -E podman push` -> cosign.
+# The stale redhat-actions/buildah-build + push-to-registry actions were dropped.
+
+on:
+  pull_request:
+    branches: [main] # PRs build + smoke-inspect (no publish) so merge-on-green gates
+  push:
+    branches: [main]
+    paths:
+      - "bazzite/**"
+      - "common/**"
+      - "assets/brand/**"
+      - "VERSION"
+      - ".github/workflows/build-image.yml"
+  schedule:
+    - cron: "0 6 * * 1" # weekly: pick up Bazzite base + package updates
+  workflow_dispatch:
+    inputs:
+      github_user:
+        description: "GitHub user whose public keys seed SSH access"
+        required: false
+        default: "hartsock"
+
+env:
+  IMAGE_NAME: lava-chicken-os
+  # NOTE: GHCR requires a lowercase owner; every consumer lowercases at point of use.
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  # Repo variable LAVA_GITHUB_USER overrides; falls back to the dispatch input
+  # or the repo owner. Forkers set one variable, edit nothing.
+  DEFAULT_GH_USER: ${{ vars.LAVA_GITHUB_USER || github.repository_owner }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-image:
+    runs-on: ubuntu-24.04 # podman v4+ / newer buildah; 22.04 ships podman v3 (too old)
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless (OIDC) signing
+    steps:
+      - uses: actions/checkout@v5
+
+      # Bazzite layers are multi-GB; free the runner or the build can hit ENOSPC.
+      - name: Maximize build space
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6 # pinned
+
+      - name: Sync shared payload into image build context
+        run: |
+          # common/ is the single source of truth; the image lands it under
+          # /usr/share/lava-chicken. This synced dir is gitignored.
+          mkdir -p bazzite/system_files/usr/share/lava-chicken
+          rsync -a --delete common/ bazzite/system_files/usr/share/lava-chicken/
+          cp VERSION bazzite/system_files/usr/share/lava-chicken/VERSION
+          mkdir -p bazzite/system_files/usr/share/lava-chicken/brand
+          cp assets/brand/* bazzite/system_files/usr/share/lava-chicken/brand/ 2>/dev/null || true
+
+      - name: Resolve GitHub keys user + version
+        id: cfg
+        run: |
+          user="${{ github.event.inputs.github_user || env.DEFAULT_GH_USER }}"
+          echo "gh_user=$user" >>"$GITHUB_OUTPUT"
+          echo "version=$(cat VERSION)" >>"$GITHUB_OUTPUT"
+          echo "sha7=${GITHUB_SHA::7}" >>"$GITHUB_OUTPUT"
+          echo "Seeding SSH keys from https://github.com/$user.keys ; version $(cat VERSION)"
+
+      - name: Build image
+        id: build
+        run: |
+          set -euxo pipefail
+          sudo podman build \
+            --pull=newer \
+            --file bazzite/Containerfile \
+            --build-arg "LAVA_GITHUB_USER=${{ steps.cfg.outputs.gh_user }}" \
+            --build-arg "LAVA_BOX_NAME=${{ vars.LAVA_BOX_NAME || 'nugget' }}" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.description=Lava Chicken OS (LaCOS) — custom Bazzite bootc image" \
+            --label "org.opencontainers.image.title=${IMAGE_NAME}" \
+            --tag "${IMAGE_NAME}:stable" \
+            ./bazzite
+
+      # L1 smoke (#9): assert the baked "nugget layer" INSIDE the freshly-built
+      # image before we ever push. Runs on every PR + push, ~1 min, no VM. This
+      # is the cheap net that catches "the build silently stopped installing X".
+      - name: Smoke-inspect the nugget layer
+        run: |
+          set -euo pipefail
+          sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:stable" -euo pipefail -c '
+            fail=0
+            need_f() { [ -f "$1" ] || { echo "MISSING file: $1"; fail=1; }; }
+            need_x() { [ -x "$1" ] || { echo "MISSING exec: $1"; fail=1; }; }
+            # branded entrypoints + per-user agent launcher
+            need_x /usr/bin/lacos
+            need_x /usr/bin/nugget
+            need_x /usr/bin/nugget-agentctl
+            # system units that must be baked in
+            for u in lava-chicken-firstboot lava-chicken-boot-sound nugget-agent-tmux \
+                     lava-chicken-models lava-chicken-apps; do
+              need_f "/usr/lib/systemd/system/${u}.service"
+            done
+            # account seed + agent persona + branded payload
+            need_f /usr/lib/sysusers.d/nugget.conf
+            need_f /usr/share/lava-chicken/persona/nugget-persona.md
+            need_x /usr/share/lava-chicken/bin/lacos-setup
+            need_x /usr/share/lava-chicken/bin/lacos-pull-models
+            # original brand media that must ship in the image
+            need_f /usr/share/lava-chicken/brand/boot-sound.wav
+            need_f /usr/share/lava-chicken/brand/wallpaper.png
+            need_f /usr/share/plymouth/themes/lava-chicken/lava-chicken.plymouth
+            # firstboot + sshd must be statically enabled (they run day zero)
+            for u in lava-chicken-firstboot sshd; do
+              state=$(systemctl is-enabled "${u}.service" 2>/dev/null || true)
+              case "$state" in enabled|enabled-runtime|static|alias) ;;
+                *) echo "NOT enabled: ${u} (is-enabled=${state:-none})"; fail=1;; esac
+            done
+            # LaCOS rebrand landed in os-release
+            grep -q "Lava Chicken OS" /usr/lib/os-release || { echo "os-release not rebranded"; fail=1; }
+            [ "$fail" = 0 ] && echo "nugget layer OK" || { echo "SMOKE FAILED"; exit 1; }
+          '
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        id: push
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          REG="${IMAGE_REGISTRY@L}"          # force-lowercase owner (GHCR requirement)
+          DEST="${REG}/${IMAGE_NAME}"
+          for tag in stable "v${{ steps.cfg.outputs.version }}" "${{ steps.cfg.outputs.sha7 }}"; do
+            sudo podman tag "${IMAGE_NAME}:stable" "${DEST}:${tag}"
+            # sudo -E preserves $HOME so podman finds the docker/login-action auth.
+            sudo -E podman push --digestfile=/tmp/digestfile "${DEST}:${tag}"
+          done
+          echo "digest=$(< /tmp/digestfile)" >>"$GITHUB_OUTPUT"
+          echo "dest=${DEST}" >>"$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v2.6.3"
+
+      # Keyless / OIDC signing — no COSIGN key secret needed; id-token:write enables it.
+      # Consumers verify with:
+      #   cosign verify ghcr.io/<owner>/lava-chicken-os:stable \
+      #     --certificate-identity-regexp 'https://github.com/<owner>/lava-chicken-os/.*' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Sign image (cosign keyless)
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euxo pipefail
+          cosign sign -y "${{ steps.push.outputs.dest }}@${{ steps.push.outputs.digest }}"
+
+  build-iso:
+    needs: build-image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read # pull the just-pushed (private-by-default) GHCR image
+    steps:
+      - uses: actions/checkout@v5
+
+      # bootc-image-builder needs ~20-30 GB for a Bazzite ISO. Reclaim first.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main @ pinned
+        with:
+          tool-cache: true
+          docker-images: true
+          large-packages: true
+
+      - name: Pull the image into container storage (bib reads it locally)
+        run: |
+          set -euxo pipefail
+          # podman on ubuntu-24.04 already defaults to overlay with a proper
+          # runroot/graphroot — don't write a partial storage.conf (it clobbers
+          # runroot -> "runroot must be set").
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          sudo podman pull "${IMAGE_REGISTRY@L}/${IMAGE_NAME}:stable"
+
+      - name: Build Anaconda install ISO
+        run: |
+          set -euxo pipefail
+          REG="${IMAGE_REGISTRY@L}"
+          mkdir -p ./output
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v "$(pwd)/bazzite/image.toml":/config.toml:ro \
+            -v "$(pwd)/output":/output \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type anaconda-iso \
+            --rootfs btrfs \
+            --config /config.toml \
+            "${REG}/${IMAGE_NAME}:stable"
+
+      - name: Fix output ownership (bib writes as root)
+        run: sudo chown -R "$(id -u):$(id -g)" ./output
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lava-chicken-os-installer
+          path: ./output/**/*.iso
+          if-no-files-found: error
+
+  # A qcow2 VM disk for RISK-FREE testing — boot it in a VM before touching real
+  # hardware (esp. before any dual-boot partition surgery). See docs/INSTALL-DUALBOOT.md.
+  build-vm:
+    needs: build-image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main @ pinned
+        with:
+          tool-cache: true
+          docker-images: true
+          large-packages: true
+
+      - name: Pull the image into container storage (bib reads it locally)
+        run: |
+          set -euxo pipefail
+          # podman on ubuntu-24.04 already defaults to overlay with a proper
+          # runroot/graphroot — don't write a partial storage.conf (it clobbers
+          # runroot -> "runroot must be set").
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          sudo podman pull "${IMAGE_REGISTRY@L}/${IMAGE_NAME}:stable"
+
+      - name: Build qcow2 VM disk
+        run: |
+          set -euxo pipefail
+          REG="${IMAGE_REGISTRY@L}"
+          mkdir -p ./output
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v "$(pwd)/bazzite/image.toml":/config.toml:ro \
+            -v "$(pwd)/output":/output \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type qcow2 \
+            --rootfs btrfs \
+            --config /config.toml \
+            "${REG}/${IMAGE_NAME}:stable"
+
+      - name: Fix output ownership (bib writes as root)
+        run: sudo chown -R "$(id -u):$(id -g)" ./output
+
+      - name: Upload qcow2 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lava-chicken-os-vm
+          path: ./output/**/*.qcow2
+          if-no-files-found: error

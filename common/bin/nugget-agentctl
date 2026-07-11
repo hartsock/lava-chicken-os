@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Owner-facing pause / kill / resume switch for the resident nugget agent.
+# Run with sudo (it controls a system service). This is the human's off-switch.
+# (Adopted from the parallel build; adapted to the nugget-agent-tmux naming.)
+set -euo pipefail
+UNIT="nugget-agent-tmux.service"
+FLAG="/etc/lava-chicken/agent.disabled"
+SOCK="/run/nugget/tmux.sock"
+
+usage() { cat >&2 <<EOF
+usage: nugget-agentctl {pause|kill|disable|resume|status}
+  pause    stop the session now (graceful); comes back on next boot/start
+  kill     hard SIGKILL the session now (use if it's stuck)
+  disable  stop now AND keep it down across reboots (sets $FLAG)
+  resume   clear the disable flag and start the session
+  status   show unit + whether a session socket is live
+EOF
+exit 2; }
+
+case "${1:-}" in
+  pause)   systemctl stop "$UNIT" ;;
+  kill)    systemctl kill -s SIGKILL "$UNIT"; systemctl stop "$UNIT" || true ;;
+  disable) mkdir -p /etc/lava-chicken; : > "$FLAG"; systemctl stop "$UNIT" ;;
+  resume)  rm -f "$FLAG"; systemctl start "$UNIT" ;;
+  status)  systemctl --no-pager status "$UNIT" || true
+           [ -S "$SOCK" ] && echo "socket: LIVE ($SOCK)" || echo "socket: absent" ;;
+  *)       usage ;;
+esac

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# LaCOS — Lava Chicken OS control command. One friendly branded entrypoint for
+# the box: status, attach the resident nugget agent, drive the agent, version.
+set -euo pipefail
+VERSION_FILE=/etc/lava-chicken/version
+STATE=/var/lib/lava-chicken
+
+ver() { cat "$VERSION_FILE" 2>/dev/null || echo "?"; }
+
+find_bin() {  # locate a helper: baked (/usr/share) on Bazzite, /var on SteamOS
+  local d
+  for d in /usr/share/lava-chicken/bin "$STATE/bin"; do
+    [ -x "$d/$1" ] && { echo "$d/$1"; return 0; }
+  done
+  command -v "$1" 2>/dev/null || return 1
+}
+
+usage() {
+  cat <<EOF
+LaCOS $(ver) — Lava Chicken OS  🐔🌋
+usage: lacos <command>
+  status        services + resident agent + version
+  attach        attach the resident nugget agent session (the "nugget" button)
+  agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
+  setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
+  models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
+  apps          install/refresh the creative + gaming Flatpak apps
+  version       print the OS version
+  help          this help
+EOF
+}
+
+case "${1:-help}" in
+  status)
+    echo "LaCOS $(ver) — host $(hostname)"
+    for u in nugget-agent-tmux.service ollama.service sshd.service \
+             lava-chicken-boot-sound.service; do
+      printf '  %-30s %s\n' "$u" "$(systemctl is-active "$u" 2>/dev/null || echo unknown)"
+    done
+    if [ -S /run/nugget/tmux.sock ]; then echo "  nugget session               LIVE"
+    else echo "  nugget session               absent"; fi
+    ;;
+  attach)
+    if a="$(find_bin attach-nugget)"; then exec "$a"
+    else echo "attach-nugget not found" >&2; exit 1; fi
+    ;;
+  agent)
+    shift
+    if c="$(find_bin nugget-agentctl)"; then exec sudo "$c" "$@"
+    else echo "nugget-agentctl not found" >&2; exit 1; fi
+    ;;
+  models)
+    shift
+    if m="$(find_bin lacos-pull-models)"; then exec "$m" "$@"
+    else echo "lacos-pull-models not found" >&2; exit 1; fi
+    ;;
+  apps)
+    shift
+    if a="$(find_bin lacos-install-apps)"; then exec "$a" "$@"
+    else echo "lacos-install-apps not found" >&2; exit 1; fi
+    ;;
+  setup)
+    shift
+    if s="$(find_bin lacos-setup)"; then exec "$s" "$@"
+    else echo "lacos-setup not found" >&2; exit 1; fi
+    ;;
+  version) ver ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 2 ;;
+esac

@@ -1,0 +1,21 @@
+[Unit]
+Description=LaCOS — pull LLM models (first boot, so the agent is instant)
+Documentation=https://github.com/hartsock/lava-chicken-os
+After=ollama.service network-online.target
+Wants=ollama.service network-online.target
+# Only until the models are all present; the pull script stamps on success.
+ConditionPathExists=!/var/lib/lava-chicken/models.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/share/lava-chicken/bin/lacos-pull-models
+# Stamp only on success (ExecStartPost runs only if ExecStart succeeded), so a
+# failed/partial pull (no network) retries on the next boot.
+ExecStartPost=/bin/sh -c 'install -d -m0755 /var/lib/lava-chicken && date -u +%%FT%%TZ > /var/lib/lava-chicken/models.done'
+# A multi-GB pull — no timeout. Progress goes to the journal + console.
+TimeoutStartSec=infinity
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

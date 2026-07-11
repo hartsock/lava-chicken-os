@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# The BUTTON target: attach the calling human to nugget's resident tmux session.
+# First run grants attach rights once (polkit-authed); thereafter it just attaches.
+#
+# SECURITY: attaching == a shell as sudo-capable nugget == root-equivalent. The
+# first-time grant is the real gate; keep the nugget-tui group to humans you trust.
+set -euo pipefail
+SOCK=/run/nugget/tmux.sock
+
+if ! tmux -S "$SOCK" has-session -t nugget 2>/dev/null; then
+  echo "The nugget agent session isn't running yet."
+  echo "Check: systemctl status nugget-agent-tmux.service"
+  exit 1
+fi
+
+# Not yet allowed to attach -> one-time polkit-authed grant (adds you to
+# nugget-tui and re-applies the live server ACL, closing the first-boot race).
+if ! id -nG "$USER" | tr ' ' '\n' | grep -qx nugget-tui; then
+  echo "First time: requesting attach access for '$USER' (you'll be asked to authenticate)..."
+  pkexec /usr/libexec/nugget-grant-tui "$USER" || {
+    echo "Grant declined; cannot attach." >&2; exit 1; }
+fi
+
+exec tmux -S "$SOCK" attach -t nugget

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# The resident agent window. Runs newt with full access + no splash, and RESTARTS
+# it whenever it exits — the `/end` command or the user leaving the screen. The
+# session never dies. Crash-backoff so a failing newt can't busy-spin.
+#
+# --full-access is a deliberate temporary escape hatch until newt OCAP matures
+# (then it becomes a no-op); we pass it unconditionally. See newt-agent#1090.
+set -u
+export PATH="/var/lib/lava-chicken/bin:$HOME/.local/bin:$PATH"   # shared newt
+export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+cd "$HOME" 2>/dev/null || true
+
+backoff=1
+while true; do
+  if command -v newt >/dev/null 2>&1; then
+    # Global flags (--no-splash --full-access --persona) precede the `code`
+    # subcommand. Persona is selected by NAME; the file lives at
+    # ~/.newt/personas/nugget.md. Verified against newt v0.7.2 CLI.
+    newt --no-splash --full-access --persona nugget code || true
+    backoff=1
+  else
+    echo "[nugget] newt not installed yet — retrying in ${backoff}s." >&2
+    echo "[nugget] run: sudo bash common/provision/50-nugget-agent.sh" >&2
+    sleep "$backoff"; backoff=$(( backoff < 30 ? backoff * 2 : 30 ))
+  fi
+  sleep 1   # brief pause between restarts (crash-loop guard)
+done

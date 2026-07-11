@@ -1,0 +1,45 @@
+[Unit]
+Description=Resident newt-agent tmux server (nugget) — persistent session, loopback-only
+Documentation=https://github.com/hartsock/lava-chicken-os
+After=multi-user.target ollama.service systemd-tmpfiles-setup.service
+Wants=network-online.target
+# Reboot-safe killswitch: `sudo nugget-agentctl disable` sets this flag and keeps
+# nugget down until `resume`. See common/bin/nugget-agentctl.
+ConditionPathExists=!/etc/lava-chicken/agent.disabled
+
+[Service]
+Type=forking
+User=nugget
+Group=nugget
+# /run/nugget is created setgid (group nugget-tui) by tmpfiles.d/lava-chicken.conf,
+# so the socket inherits the group without a root chgrp.
+Environment=TMUX_SOCK=/run/nugget/tmux.sock
+ExecStart=/usr/share/lava-chicken/bin/nugget-agent-run
+# tmux creates the socket 0600 (it ignores systemd UMask); the owner (nugget)
+# widens it to group rw, then the server-access ACL is the real gate (mandatory
+# on tmux >= 3.3, which both bases ship).
+ExecStartPost=/bin/sh -c 'chmod 0660 "$TMUX_SOCK" 2>/dev/null || true'
+ExecStartPost=/bin/sh -c 'for u in $(getent group nugget-tui | cut -d: -f4 | tr "," " "); do tmux -S "$TMUX_SOCK" server-access -aw "$u" 2>/dev/null || true; done'
+ExecStop=/usr/bin/tmux -S /run/nugget/tmux.sock kill-server
+Restart=on-failure
+RestartSec=3
+
+# --- prompt-independent guardrails (coexist with NOPASSWD sudo; defense-in-depth
+#     + observability, not containment — newt OCAP is the eventual real wall) ---
+# Network: nugget may reach the on-box model on loopback and nothing else — no
+# listening port, no internet egress (cgroup eBPF; both bases support it).
+IPAddressAllow=localhost
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Filesystem: read-only system except the agent's own writable state.
+ProtectSystem=strict
+ReadWritePaths=/var/home/nugget /run/nugget /var/log/sudo-io
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+# MUST stay 'no' and NoNewPrivileges MUST stay unset: nugget's sudo is setuid and
+# would silently break otherwise. (Sudo policy is the containment layer here.)
+RestrictSUIDSGID=no
+
+[Install]
+WantedBy=multi-user.target

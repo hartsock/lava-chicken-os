@@ -1,0 +1,18 @@
+# /etc/sudoers.d/nugget — installed 0440 root:root, validated with `visudo -cf`.
+#
+# PROPOSE-&-APPROVE posture (owner's choice): the nugget agent account has NO
+# passwordless sudo and is NOT in `wheel`. Its password is locked, so it cannot
+# run `sudo` at all — privileged actions are *proposed* by the agent and run by a
+# human (an admin, with their own auth). There is deliberately NO NOPASSWD grant.
+#
+# Full autonomous root is DEFERRED until newt's OCAP (object-capability) work can
+# confine it safely (see newt-agent#1090). When that lands, a scoped grant can be
+# added here — not before.
+#
+# We still install these audit Defaults so that if nugget is ever granted sudo,
+# every invocation is fully transcript-logged. (Dirs come from tmpfiles.d.)
+Defaults:nugget log_input, log_output, iolog_dir="/var/log/sudo-io/nugget"
+Defaults:nugget logfile="/var/log/nugget-sudo.log", syslog=authpriv
+Defaults:nugget !visiblepw
+
+# (No `nugget ALL=(ALL) ...` grant line. Intentional.)

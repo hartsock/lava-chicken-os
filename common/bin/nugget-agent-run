@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# ExecStart of nugget-agent-tmux.service. Runs as nugget. Sets up the persona,
+# then starts the resident tmux server with one window running the agent loop.
+set -euo pipefail
+SELF_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"   # OS-agnostic sibling lookup
+LOOP="$SELF_DIR/nugget-agent-loop"
+SOCK="${TMUX_SOCK:-/run/nugget/tmux.sock}"
+
+# newt discovers personas by name under ~/.newt/personas/*.md; --persona nugget
+# selects this file.
+PERSONA_DIR="$HOME/.newt/personas"
+PERSONA="$PERSONA_DIR/nugget.md"
+install -d -m0755 "$PERSONA_DIR" "$HOME/.local/state/nugget"
+
+# Fallback persona only if none exists yet — provision/50 writes the templated
+# one (@AGENT_NAME@ substituted) and restarts us, so we must not clobber it.
+if [ ! -f "$PERSONA" ]; then
+  for src in "$SELF_DIR/../persona/nugget-persona.md" \
+             /usr/share/lava-chicken/persona/nugget-persona.md \
+             /var/lib/lava-chicken/persona/nugget-persona.md; do
+    [ -r "$src" ] && { install -m0644 "$src" "$PERSONA"; break; }
+  done
+fi
+
+export OLLAMA_HOST="http://127.0.0.1:11434"
+
+# Create the resident session running the respawn loop, if not already up.
+if ! tmux -S "$SOCK" has-session -t nugget 2>/dev/null; then
+  tmux -S "$SOCK" new-session -d -s nugget -n agent "exec '$LOOP'"
+  tmux -S "$SOCK" set-option -t nugget history-limit 50000
+fi
+
+# Type=forking: the tmux server has daemonized; return so systemd sees it up.
+exit 0

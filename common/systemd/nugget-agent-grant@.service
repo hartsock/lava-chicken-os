@@ -1,0 +1,10 @@
+[Unit]
+Description=Grant %i attach access to the nugget tmux server
+After=nugget-agent-tmux.service
+Requires=nugget-agent-tmux.service
+
+[Service]
+Type=oneshot
+User=nugget
+Environment=TMUX_SOCK=/run/nugget/tmux.sock
+ExecStart=/usr/bin/tmux -S ${TMUX_SOCK} server-access -aw %i

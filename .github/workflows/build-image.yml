@@ -1,0 +1,127 @@
+name: build-image
+
+# Builds the lava-chicken-os bootc image (Bazzite base) and pushes it to GHCR,
+# then generates an Anaconda install ISO as a workflow artifact.
+#
+# NOTE: lines marked "# VERIFY" pin external action/tool versions that must be
+# confirmed against current uBlue / bootc-image-builder docs before relying on
+# a green run. This is the standard uBlue custom-image pattern.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bazzite/**"
+      - "common/**"
+      - ".github/workflows/build-image.yml"
+  schedule:
+    - cron: "0 6 * * 1" # weekly: pick up Bazzite base + package updates
+  workflow_dispatch:
+    inputs:
+      github_user:
+        description: "GitHub user whose public keys seed SSH access"
+        required: false
+        default: "hartsock"
+
+env:
+  IMAGE_NAME: lava-chicken-os
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  # Repo variable LAVA_GITHUB_USER overrides; falls back to the dispatch input
+  # or the repo owner. Forkers set one variable, edit nothing.
+  DEFAULT_GH_USER: ${{ vars.LAVA_GITHUB_USER || github.repository_owner }}
+
+jobs:
+  build-image:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless signing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync shared payload into image build context
+        run: |
+          # common/ is the single source of truth; the image lands it under
+          # /usr/share/lava-chicken. This synced dir is gitignored.
+          mkdir -p bazzite/system_files/usr/share/lava-chicken
+          rsync -a --delete common/ bazzite/system_files/usr/share/lava-chicken/
+          cp VERSION bazzite/system_files/usr/share/lava-chicken/VERSION
+          mkdir -p bazzite/system_files/usr/share/lava-chicken/brand
+          cp assets/brand/*.png bazzite/system_files/usr/share/lava-chicken/brand/ 2>/dev/null || true
+
+      - name: Resolve GitHub keys user + version
+        id: cfg
+        run: |
+          user="${{ github.event.inputs.github_user || env.DEFAULT_GH_USER }}"
+          echo "gh_user=$user" >>"$GITHUB_OUTPUT"
+          echo "version=$(cat VERSION)" >>"$GITHUB_OUTPUT"
+          echo "Seeding SSH keys from https://github.com/$user.keys ; version $(cat VERSION)"
+
+      - name: Build image
+        id: build
+        uses: redhat-actions/buildah-build@v2 # VERIFY version
+        with:
+          containerfiles: ./bazzite/Containerfile
+          context: ./bazzite
+          image: ${{ env.IMAGE_NAME }}
+          tags: |
+            stable
+            v${{ steps.cfg.outputs.version }}
+            ${{ github.sha }}
+          build-args: |
+            LAVA_GITHUB_USER=${{ steps.cfg.outputs.gh_user }}
+            LAVA_BOX_NAME=${{ vars.LAVA_BOX_NAME || 'nugget' }}
+          oci: true
+
+      - name: Push to GHCR
+        id: push
+        if: github.event_name != 'pull_request'
+        uses: redhat-actions/push-to-registry@v2 # VERIFY version
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign image (cosign keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          # VERIFY: uBlue ships a cosign.pub; keyless OIDC signing here.
+          cosign sign --yes \
+            "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}" || \
+            echo "::warning::cosign signing skipped/failed — verify OIDC setup"
+
+  build-iso:
+    needs: build-image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Anaconda install ISO
+        run: |
+          # VERIFY: bootc-image-builder image tag + config schema.
+          mkdir -p ./output
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v ./output:/output \
+            -v ./bazzite/image.toml:/config.toml:ro \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type anaconda-iso \
+            --config /config.toml \
+            "${IMAGE_REGISTRY}/${IMAGE_NAME}:stable"
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lava-chicken-os-installer
+          path: ./output/**/*.iso
+          if-no-files-found: error

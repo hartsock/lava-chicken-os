@@ -1,0 +1,13 @@
+# bootc-image-builder config for the Anaconda install ISO.
+# VERIFY schema against current bootc-image-builder docs before first build.
+#
+# Deliberately does NOT bake a user: the Anaconda OOBE creates the primary
+# account (type your GitHub handle as the username), and
+# lava-chicken-firstboot.service then fills SSH keys / Sunshine / newt persona
+# for whoever that primary user is. This mirrors SteamOS's 'deck' and keeps the
+# image free of baked credentials.
+
+[customizations.installer.kickstart]
+contents = """
+# Minimal: let the interactive OOBE handle user + disk. First boot does the rest.
+"""

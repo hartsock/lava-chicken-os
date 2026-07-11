@@ -1,0 +1,15 @@
+[Unit]
+Description=lava-chicken-os first-boot provisioning (SSH keys, Sunshine, newt persona)
+# Only run once — the provisioning script drops a stamp when it succeeds.
+ConditionPathExists=!/var/lib/lava-chicken/firstboot.done
+After=network-online.target systemd-user-sessions.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/share/lava-chicken/provision/firstboot.sh
+# Runs as root; the script su's to the primary (uid 1000) user for $HOME work.
+
+[Install]
+WantedBy=multi-user.target

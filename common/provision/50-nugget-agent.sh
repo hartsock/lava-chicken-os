@@ -22,6 +22,20 @@ else
   pwarn "ollama not installed yet — run scripts/40-ollama.sh; the agent will retry."
 fi
 
+# --- pull LLM models on first boot so the agent is instant (issue #2) --------
+if [ "$(os_id)" != bazzite ]; then
+  install -d -m0755 "$STATE/bin"
+  install -m0755 "$HERE/../bin/lacos-pull-models" "$STATE/bin/lacos-pull-models"
+  sed 's#/usr/share/lava-chicken/#'"$STATE"'/#' \
+    "$HERE/../systemd/lava-chicken-models.service" \
+    > /etc/systemd/system/lava-chicken-models.service
+  systemctl daemon-reload || true
+fi
+systemctl enable lava-chicken-models.service 2>/dev/null || true
+# Non-blocking: the multi-GB pull runs in the background during first boot.
+systemctl start --no-block lava-chicken-models.service 2>/dev/null \
+  || pwarn "couldn't start model pull — run 'lacos models' once ollama is up"
+
 # --- newt: install the LATEST release to the SHARED dir (all users can run it) --
 if bash "$HERE/../bin/install-newt-release.sh" /var/lib/lava-chicken/bin; then
   plog "newt (latest release) installed to /var/lib/lava-chicken/bin (shared)"

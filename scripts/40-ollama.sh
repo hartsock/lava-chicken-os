@@ -41,8 +41,9 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 
-log "Pulling starter coding model (qwen2.5-coder:7b)..."
-"$BIN_DIR/ollama" pull qwen2.5-coder:7b || warn "Pull failed; run 'ollama pull qwen2.5-coder:7b' later."
+# Models are pulled by lava-chicken-models.service on first boot (with progress),
+# or on demand via `lacos models` — not here, so there's a single source of truth.
+log "ollama ready. Models pull on first boot (lava-chicken-models.service) or via: lacos models"
 
 log "Check GPU use with: journalctl --user -u ollama | grep -i rocm"
 warn "Note: very old AMD GPUs (Vega gfx900/gfx906) are unsupported by current"

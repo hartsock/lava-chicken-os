@@ -4,3 +4,4 @@
 # immutable-image model.
 enable lava-chicken-boot-sound.service
 enable nugget-agent-tmux.service
+enable lava-chicken-models.service

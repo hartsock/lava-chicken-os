@@ -22,6 +22,7 @@ usage: lacos <command>
   status        services + resident agent + version
   attach        attach the resident nugget agent session (the "nugget" button)
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
+  models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
   version       print the OS version
   help          this help
 EOF
@@ -45,6 +46,11 @@ case "${1:-help}" in
     shift
     if c="$(find_bin nugget-agentctl)"; then exec sudo "$c" "$@"
     else echo "nugget-agentctl not found" >&2; exit 1; fi
+    ;;
+  models)
+    shift
+    if m="$(find_bin lacos-pull-models)"; then exec "$m" "$@"
+    else echo "lacos-pull-models not found" >&2; exit 1; fi
     ;;
   version) ver ;;
   help|-h|--help) usage ;;

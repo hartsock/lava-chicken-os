@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Pull the LaCOS LLM models via ollama, with progress. Idempotent: skips models
+# already present. Run by lava-chicken-models.service on first boot, or by hand
+# via `lacos models`. Model list from /etc/lava-chicken/models.conf, else default.
+set -uo pipefail
+export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
+export PATH="/var/lib/lava-chicken/bin:$PATH"
+
+CONF=/etc/lava-chicken/models.conf
+# Default set: coder/session model + newt's embeddings. The summarizer reuses the
+# session model by default, so no separate pull is required.
+DEFAULT_MODELS="qwen2.5-coder:7b nomic-embed-text"
+
+if [ -r "$CONF" ]; then
+  MODELS="$(grep -vE '^\s*(#|$)' "$CONF" | tr '\n' ' ')"
+else
+  MODELS="$DEFAULT_MODELS"
+fi
+
+command -v ollama >/dev/null 2>&1 || { echo "[models] ollama not found on PATH" >&2; exit 1; }
+
+echo "[models] waiting for ollama API ..."
+for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
+ollama list >/dev/null 2>&1 || { echo "[models] ollama API not responding" >&2; exit 1; }
+
+present() { ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -q "^${1%%:*}"; }
+
+rc=0
+for m in $MODELS; do
+  if present "$m"; then
+    echo "[models] ✓ $m already present"
+    continue
+  fi
+  echo "[models] ↓ pulling $m ..."
+  if ollama pull "$m"; then
+    echo "[models] ✓ $m"
+  else
+    echo "[models] ✗ FAILED $m (will retry next boot)" >&2
+    rc=1
+  fi
+done
+[ "$rc" -eq 0 ] && echo "[models] all models present."
+exit "$rc"

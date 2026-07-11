@@ -10,6 +10,12 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
 
 ## [Unreleased]
 
+### Added
+- **First-boot LLM model pre-load** (#2) — `lava-chicken-models.service` pulls
+  `qwen2.5-coder:7b` + `nomic-embed-text` on first boot with progress (stamped on
+  success, retries otherwise), so the agent is instant. Re-run/check with
+  `lacos models`; override the set in `/etc/lava-chicken/models.conf`.
+
 ## [0.0.1] — bring-up
 
 ### Added

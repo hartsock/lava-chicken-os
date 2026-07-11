@@ -1,0 +1,23 @@
+[Unit]
+Description=Steve's Lava Chicken boot sound (earliest reliable, ALSA direct)
+Documentation=https://github.com/hartsock/lava-chicken-os
+# sound.target is a coarse gate only: it fires on the FIRST card and does not
+# guarantee THIS card's /dev/snd nodes are playable (systemd.special(7)); the
+# wrapper additionally retries against real hardware.
+After=sound.target
+Wants=sound.target
+# Bias to greeter time on desktop boots; harmless no-op elsewhere (Type=simple
+# returns at exec, so the greeter is never stalled by playback).
+Before=display-manager.service
+# Inert until the owner has copied their song and scripts/22 rendered the WAV.
+ConditionPathExists=/var/lib/lava-chicken/boot-sound.wav
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/lava-chicken/boot-sound.conf
+ExecStart=/usr/share/lava-chicken/bin/play-boot-sound /var/lib/lava-chicken/boot-sound.wav
+# Wrapper poll ceiling is ~20s; keep the timeout safely above it.
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

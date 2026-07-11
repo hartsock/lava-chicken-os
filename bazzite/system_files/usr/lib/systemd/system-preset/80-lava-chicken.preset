@@ -1,0 +1,6 @@
+# lava-chicken-os units enabled at boot via `systemctl preset-all` on the bootc
+# image. Presets are the correct enablement mechanism for baked units — enabling
+# in the Containerfile would write .wants symlinks into /etc and fight the
+# immutable-image model.
+enable lava-chicken-boot-sound.service
+enable nugget-agent-tmux.service

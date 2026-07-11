@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Play the boot sound via ALSA. Runs as root at multi-user.target, BEFORE any
+# user PipeWire, so the hardware PCM is free (pw-play/paplay can't work yet —
+# PipeWire is a per-user, session-scoped service). NEVER fails boot: exits 0.
+set -u
+WAV="${1:-/var/lib/lava-chicken/boot-sound.wav}"
+[ -r "$WAV" ] || exit 0
+command -v aplay >/dev/null 2>&1 || exit 0        # alsa-utils absent -> silent skip
+
+# Optional Game-Mode opt-out: let the Steam startup movie carry the song there
+# instead (avoids aplay's exclusive PCM briefly clipping the movie's audio).
+: "${LAVA_BOOTSOUND_GAMEMODE:=1}"
+if [ "$LAVA_BOOTSOUND_GAMEMODE" = 0 ] && \
+   systemctl show -p Wants gamescope-session.service 2>/dev/null | grep -q gamescope; then
+  exit 0
+fi
+
+play() { timeout 15 aplay -q -D "$1" "$WAV" >/dev/null 2>&1; }
+
+# A pinned card wins — avoids blasting an HDMI TV or a dead analog jack.
+if [ -n "${LAVA_BOOTSOUND_CARD:-}" ]; then
+  for _ in $(seq 1 40); do play "$LAVA_BOOTSOUND_CARD" && exit 0; sleep 0.5; done
+  exit 0
+fi
+
+# Otherwise retry-play: enumeration != playable, so ATTEMPT a real play and retry.
+for _ in $(seq 1 40); do                           # ~20s ceiling < TimeoutStartSec=30
+  [ -d /dev/snd ] || { sleep 0.5; continue; }
+  play default && exit 0                            # honors /etc/asound.conf if present
+  for c in $(awk '/^ *[0-9]+ \[/{gsub(/[^0-9]/,"",$1);print $1}' /proc/asound/cards 2>/dev/null); do
+    for d in 0 1 2 3; do play "plughw:${c},${d}" && exit 0; done
+  done
+  sleep 0.5
+done
+echo "[lava-chicken:boot-sound] no device accepted the stream; boot unaffected"
+exit 0

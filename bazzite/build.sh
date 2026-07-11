@@ -17,6 +17,12 @@ echo "${LAVA_BOX_NAME:-nugget}" > "$PAY/box-name"
 # Payload executables must be executable in the image.
 chmod +x "$PAY"/provision/*.sh "$PAY"/bin/* "$PAY"/libexec/* 2>/dev/null || true
 
+# bootc-image-builder depsolves the image's dnf repos when generating the ISO/
+# qcow2; Bazzite's Terra repos reference GPG keys not present in the image, which
+# breaks the depsolve ("Failed to retrieve GPG key for repo 'terra-mesa'"). Drop
+# them — a bootc image updates by rebasing (not dnf), and mesa is already baked in.
+rm -f /etc/yum.repos.d/terra*.repo || true
+
 # aplay for the pre-session boot sound (Bazzite may already ship alsa-utils).
 rpm-ostree install --idempotent alsa-utils 2>/dev/null \
   || dnf install -y alsa-utils 2>/dev/null || true

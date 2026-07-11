@@ -1,0 +1,24 @@
+# user-supplied media never gets committed
+assets/user/*
+!assets/user/README.md
+
+# belt & suspenders: block media formats repo-wide
+*.mp3
+*.m4a
+*.ogg
+*.opus
+*.wav
+*.flac
+*.webm
+*.mp4
+*.mkv
+
+# generated wallpapers are recreated locally
+assets/generated/out/
+
+# CI-synced payload (common/ is the source of truth; this is generated)
+bazzite/system_files/usr/share/lava-chicken/
+
+# junk
+.DS_Store
+*.log

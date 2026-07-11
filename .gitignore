@@ -13,6 +13,10 @@ assets/user/*
 *.mp4
 *.mkv
 
+# ...EXCEPT the owner's ORIGINAL boot media, which ships with the OS
+!assets/brand/boot-sound.wav
+!assets/brand/boot-movie.webm
+
 # generated wallpapers are recreated locally
 assets/generated/out/
 

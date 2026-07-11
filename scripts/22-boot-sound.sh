@@ -5,17 +5,20 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-require_audio
-AUDIO="$(find_audio)"
-FFMPEG="$(ffmpeg_cmd)" || exit 1
-
-LEN="${LAVA_BOOTSOUND_SECONDS:-8}"     # keep short: aplay holds the hw PCM this long
-mkdir -p "$GEN_OUT"
-OUT="$GEN_OUT/boot-sound.wav"
-
-# aplay decodes WAV/raw PCM only, so pre-render; plughw handles rate conversion.
-log "Rendering ${LEN}s boot sound (48kHz stereo PCM)..."
-"$FFMPEG" -y -i "$AUDIO" -t "$LEN" -ac 2 -ar 48000 -c:a pcm_s16le "$OUT"
+# Your own audio (assets/user) wins; otherwise the shipped original boot chime.
+if AUDIO="$(find_audio)"; then
+  FFMPEG="$(ffmpeg_cmd)" || exit 1
+  LEN="${LAVA_BOOTSOUND_SECONDS:-15}"   # aplay holds the hw PCM this long
+  mkdir -p "$GEN_OUT"; OUT="$GEN_OUT/boot-sound.wav"
+  log "Rendering ${LEN}s boot sound from your audio (48kHz stereo PCM)..."
+  "$FFMPEG" -y -i "$AUDIO" -t "$LEN" -ac 2 -ar 48000 -c:a pcm_s16le "$OUT"
+else
+  for d in /usr/share/lava-chicken/brand "$REPO_ROOT/assets/brand"; do
+    [ -r "$d/boot-sound.wav" ] && OUT="$d/boot-sound.wav" && break
+  done
+  [ -n "${OUT:-}" ] || { warn "no boot sound found (drop one in assets/user/)"; exit 1; }
+  log "Using the shipped boot chime: $OUT"
+fi
 
 log "Installing boot sound service (needs sudo)..."
 sudo env LAVA_BOOT_WAV="$OUT" bash "$REPO_ROOT/common/provision/05-boot-sound.sh"

@@ -11,6 +11,9 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
 ## [Unreleased]
 
 ### Added
+- **Original boot chime + movie** ship as defaults — the owner's own
+  `boot-sound.wav` (greeter-time ALSA) + `boot-movie.webm` (Steam Game Mode
+  startup movie); Game Mode defaults to the movie so the chime doesn't clip it.
 - **2nd-boot setup wizard** (#15) — `lacos setup` interviews the box ("Do you use
   Tailscale? A home DNS?") and configures name, admin keys, Tailscale, split-DNS,
   and streaming from the answers; non-secret answers persist to

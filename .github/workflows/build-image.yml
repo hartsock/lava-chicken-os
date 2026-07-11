@@ -59,7 +59,7 @@ jobs:
           rsync -a --delete common/ bazzite/system_files/usr/share/lava-chicken/
           cp VERSION bazzite/system_files/usr/share/lava-chicken/VERSION
           mkdir -p bazzite/system_files/usr/share/lava-chicken/brand
-          cp assets/brand/*.png bazzite/system_files/usr/share/lava-chicken/brand/ 2>/dev/null || true
+          cp assets/brand/* bazzite/system_files/usr/share/lava-chicken/brand/ 2>/dev/null || true
 
       - name: Resolve GitHub keys user + version
         id: cfg

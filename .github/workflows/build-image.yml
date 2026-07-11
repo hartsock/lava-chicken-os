@@ -146,8 +146,9 @@ jobs:
       - name: Pull the image into container storage (bib reads it locally)
         run: |
           set -euxo pipefail
-          sudo mkdir -p /etc/containers
-          printf '[storage]\ndriver = "overlay"\n' | sudo tee /etc/containers/storage.conf
+          # podman on ubuntu-24.04 already defaults to overlay with a proper
+          # runroot/graphroot — don't write a partial storage.conf (it clobbers
+          # runroot -> "runroot must be set").
           echo "${{ secrets.GITHUB_TOKEN }}" \
             | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           sudo podman pull "${IMAGE_REGISTRY@L}/${IMAGE_NAME}:stable"
@@ -199,8 +200,9 @@ jobs:
       - name: Pull the image into container storage (bib reads it locally)
         run: |
           set -euxo pipefail
-          sudo mkdir -p /etc/containers
-          printf '[storage]\ndriver = "overlay"\n' | sudo tee /etc/containers/storage.conf
+          # podman on ubuntu-24.04 already defaults to overlay with a proper
+          # runroot/graphroot — don't write a partial storage.conf (it clobbers
+          # runroot -> "runroot must be set").
           echo "${{ secrets.GITHUB_TOKEN }}" \
             | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           sudo podman pull "${IMAGE_REGISTRY@L}/${IMAGE_NAME}:stable"

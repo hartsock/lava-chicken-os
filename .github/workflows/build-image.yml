@@ -41,6 +41,15 @@ concurrency:
 
 jobs:
   build-image:
+    strategy:
+      fail-fast: false # a deck-base breakage must not hide the stable result (and vice versa)
+      matrix:
+        include:
+          # :stable — KDE desktop-first.  :deck — boot-to-Game-Mode (SteamOS UX). See #23.
+          - variant: stable
+            base: ghcr.io/ublue-os/bazzite:stable
+          - variant: deck
+            base: ghcr.io/ublue-os/bazzite-deck:stable
     runs-on: ubuntu-24.04 # podman v4+ / newer buildah; 22.04 ships podman v3 (too old)
     permissions:
       contents: read
@@ -79,12 +88,14 @@ jobs:
           sudo podman build \
             --pull=newer \
             --file bazzite/Containerfile \
+            --build-arg "BASE_IMAGE=${{ matrix.base }}" \
+            --build-arg "LAVA_VARIANT=${{ matrix.variant }}" \
             --build-arg "LAVA_GITHUB_USER=${{ steps.cfg.outputs.gh_user }}" \
             --build-arg "LAVA_BOX_NAME=${{ vars.LAVA_BOX_NAME || 'nugget' }}" \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.description=Lava Chicken OS (LaCOS) — custom Bazzite bootc image" \
             --label "org.opencontainers.image.title=${IMAGE_NAME}" \
-            --tag "${IMAGE_NAME}:stable" \
+            --tag "${IMAGE_NAME}:build" \
             ./bazzite
 
       # L1 smoke (#9): assert the baked "nugget layer" INSIDE the freshly-built
@@ -93,7 +104,7 @@ jobs:
       - name: Smoke-inspect the nugget layer
         run: |
           set -euo pipefail
-          sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:stable" -euo pipefail -c '
+          sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:build" -euo pipefail -c '
             fail=0
             need_f() { [ -f "$1" ] || { echo "MISSING file: $1"; fail=1; }; }
             need_x() { [ -x "$1" ] || { echo "MISSING exec: $1"; fail=1; }; }
@@ -126,6 +137,9 @@ jobs:
             done
             # LaCOS rebrand landed in os-release
             grep -q "Lava Chicken OS" /usr/lib/os-release || { echo "os-release not rebranded"; fail=1; }
+            # variant marker must match the matrix leg that built this image
+            v=$(cat /usr/share/lava-chicken/variant 2>/dev/null || echo missing)
+            [ "$v" = "${{ matrix.variant }}" ] || { echo "variant marker $v != expected ${{ matrix.variant }}"; fail=1; }
             [ "$fail" = 0 ] && echo "nugget layer OK" || { echo "SMOKE FAILED"; exit 1; }
           '
 
@@ -144,8 +158,14 @@ jobs:
           set -euxo pipefail
           REG="${IMAGE_REGISTRY@L}"          # force-lowercase owner (GHCR requirement)
           DEST="${REG}/${IMAGE_NAME}"
-          for tag in stable "v${{ steps.cfg.outputs.version }}" "${{ steps.cfg.outputs.sha7 }}"; do
-            sudo podman tag "${IMAGE_NAME}:stable" "${DEST}:${tag}"
+          # :stable carries the canonical version/sha tags; :deck gets its own set.
+          if [ "${{ matrix.variant }}" = stable ]; then
+            TAGS="stable v${{ steps.cfg.outputs.version }} ${{ steps.cfg.outputs.sha7 }}"
+          else
+            TAGS="deck deck-v${{ steps.cfg.outputs.version }}"
+          fi
+          for tag in $TAGS; do
+            sudo podman tag "${IMAGE_NAME}:build" "${DEST}:${tag}"
             # sudo -E preserves $HOME so podman finds the docker/login-action auth.
             sudo -E podman push --digestfile=/tmp/digestfile "${DEST}:${tag}"
           done
@@ -169,8 +189,24 @@ jobs:
           set -euxo pipefail
           cosign sign -y "${{ steps.push.outputs.dest }}@${{ steps.push.outputs.digest }}"
 
-  build-iso:
+  # Single stable-named required check for branch protection: matrix legs report
+  # as "build-image (stable)" / "build-image (deck)", which would silently break a
+  # protection rule pinned to "build-image". This gate ALWAYS runs and fails
+  # unless every matrix leg succeeded (a skipped required check would otherwise
+  # count as satisfied — GitHub's documented behavior).
+  image-gate:
     needs: build-image
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All image variants built?
+        run: |
+          [ "${{ needs.build-image.result }}" = "success" ] \
+            || { echo "FAIL: build-image matrix result = ${{ needs.build-image.result }}"; exit 1; }
+          echo "all variants green"
+
+  build-iso:
+    needs: image-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
@@ -226,7 +262,7 @@ jobs:
   # A qcow2 VM disk for RISK-FREE testing — boot it in a VM before touching real
   # hardware (esp. before any dual-boot partition surgery). See docs/INSTALL-DUALBOOT.md.
   build-vm:
-    needs: build-image
+    needs: image-gate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:

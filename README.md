@@ -12,11 +12,13 @@ Minecraft-themed SteamOS / Bazzite gaming + local-AI + mod-dev machine —
 with <b>Nugget</b>, a resident AI agent living on the box.
 </p>
 
-> *"That's a Steve's Lava Chicken!"* — your PC, every boot.
+> *"That's a Spicy Lava Chicken!"* — your PC, every boot.
 
 > **👨‍👩‍👧‍👦 Parents: start here → [INSTALL.md](INSTALL.md)** — how to set this up
 > for your kids, in plain English: keep Windows or go all-in, make the USB
 > stick from your Mac (or Windows), and what the AI helper will and won't do.
+
+> ⚠️ Only do this to an old computer that's headed for the trash — this process might turn it into a paperweight. But if you've got an old junker collecting dust, this can breathe a few more years of life into it. No warranty, no take-backs. Back up anything you care about first.
 
 ## What you get
 

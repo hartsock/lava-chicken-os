@@ -6,7 +6,9 @@ Steam-console-style gaming box that's also a video/art studio, with a friendly
 on-box AI helper named **Nugget** — no subscriptions, no cloud accounts for the
 kids, and you can check on the machine from your own laptop.
 
-It's free and open source. Expect **about an hour**, most of it waiting.
+It's free and open source. Expect **about an hour or two**, most of it waiting.
+
+> ⚠️ Only do this to an old computer that's headed for the trash — this process might turn it into a paperweight. But if you've got an old junker collecting dust, this can breathe a few more years of life into it. No warranty, no take-backs. Back up anything you care about first.
 
 ---
 

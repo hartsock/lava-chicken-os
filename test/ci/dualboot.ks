@@ -7,10 +7,13 @@
 # "clearpart --none" and never touches the neighbour partition — i.e. it validates
 # the Anaconda+kickstart partitioning MECHANISM against a synthetic disk.
 #
-# bootc-image-builder auto-prepends ONLY the `ostreecontainer` line to a custom
-# kickstart; every other command below must be supplied by us or Anaconda halts
-# waiting for interaction (and the job hangs to timeout). Layer A (ksvalidator +
-# grep) in test-dualboot.yml checks these invariants before we ever boot.
+# bib's README says a custom kickstart gets ONLY the `ostreecontainer` payload
+# line added automatically; every other command below must be supplied by us or
+# Anaconda halts waiting for interaction. The FIRST real run partitioned per
+# this file but deployed NO payload, so test-dualboot.yml now PROBES the built
+# ISO's embedded kickstart (dump + assert `ostreecontainer` present) before
+# booting, instead of trusting that contract. Layer A (ksvalidator + grep)
+# checks the safety invariants before we ever boot.
 
 # `--non-interactive` is REQUIRED for an unattended install: plain `text` still
 # stops at the interactive hub ("Begin Installation") and waits for a human, so
@@ -21,6 +24,12 @@ lang en_US.UTF-8
 keyboard us
 timezone --utc UTC
 network --bootproto=dhcp --hostname=lacos-ci
+
+# Ship anaconda's syslog live to the CI runner (QEMU user-net host = 10.0.2.2;
+# a socat UDP listener writes anaconda-remote.log). The ISO's kernel args have
+# no console=ttyS0, so serial capture ends at GRUB — without this, a storage/
+# payload failure inside anaconda is invisible. Harmless if no listener answers.
+logging --host=10.0.2.2
 
 # A locked root + disabled firstboot make the install fully non-interactive: an
 # unspecified root/users spoke can otherwise stall even `--non-interactive`. A

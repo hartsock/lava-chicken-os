@@ -154,7 +154,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gdisk dosfstools btrfs-progs util-linux \
-            qemu-system-x86 qemu-utils ovmf openssl python3
+            qemu-system-x86 qemu-utils ovmf openssl python3 socat
           chmod +x test/ci/fabricate-neighbor-disk.sh test/ci/verify-neighbor-untouched.sh
 
       # /dev/kvm decides which layer proves it: present -> Layer B (real
@@ -217,6 +217,37 @@ jobs:
           ISO="$(find ./output -name '*.iso' | head -1)"
           [ -n "$ISO" ] || { echo "FAIL: bib produced no anaconda-iso"; find ./output -type f; exit 1; }
 
+          # ── Pre-boot probe: what kickstart did bib ACTUALLY embed? ────────────
+          # First real run installed our storage layout but landed NO payload
+          # (no ostree deployment, no ESP loader). bib's README says a custom
+          # kickstart gets the `ostreecontainer` line added automatically — this
+          # probe verifies that contract against the ISO we just built, BEFORE
+          # burning a 40-min VM boot, and dumps the embedded kickstart for the
+          # log/artifact so a payload failure is diagnosable.
+          sudo mkdir -p /mnt/l2iso
+          sudo mount -o loop,ro "$ISO" /mnt/l2iso
+          echo "--- installer kernel args (grub.cfg) ---"
+          sudo grep -rhE 'linux|inst\.' /mnt/l2iso/EFI/BOOT/grub.cfg /mnt/l2iso/boot/grub2/grub.cfg 2>/dev/null | head -20 || true
+          KSFILE="$(sudo find /mnt/l2iso -maxdepth 1 -name '*.ks' | head -1)"
+          [ -n "$KSFILE" ] || KSFILE="$(sudo find /mnt/l2iso -name '*.ks' | head -1)"
+          [ -n "$KSFILE" ] || { echo "FAIL: no embedded .ks found in the bib ISO"; sudo find /mnt/l2iso -maxdepth 2 | head -40; sudo umount /mnt/l2iso; exit 1; }
+          echo "--- embedded kickstart ($KSFILE) ---"
+          sudo cat "$KSFILE" | tee embedded-kickstart.ks
+          sudo umount /mnt/l2iso
+          grep -q '^ostreecontainer' embedded-kickstart.ks \
+            || { echo "FAIL: bib did NOT add an ostreecontainer payload line — the install can partition but never deploy. Add the payload to test/ci/dualboot.ks per this bib version."; exit 1; }
+          grep -q 'clearpart --none' embedded-kickstart.ks \
+            || { echo "FAIL: our free-space-only kickstart content is missing from the embedded kickstart"; exit 1; }
+          echo "OK: embedded kickstart has BOTH the ostreecontainer payload and our clearpart --none storage"
+
+          # Live anaconda diagnostics: the ISO's kernel has no console=ttyS0, so
+          # serial captures only GRUB. The kickstart's `logging --host=10.0.2.2`
+          # (QEMU user-net host address) ships anaconda's syslog to this listener,
+          # so payload/storage failures are visible even when the guest dies.
+          sudo pkill -f 'UDP-RECV:514' 2>/dev/null || true
+          sudo socat -u UDP-RECV:514 CREATE:anaconda-remote.log,mode=644 &
+          SYSLOG_PID=$!
+
           OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
 
           # Up to two install ATTEMPTS, but retry is ONLY for an install that never
@@ -244,6 +275,8 @@ jobs:
             qrc=$?
             set -e
             echo "qemu exit=${qrc}; tail of anaconda.log:"; tail -n 40 anaconda.log || true
+            echo "--- anaconda remote syslog (last 80 lines) ---"
+            sudo tail -n 80 anaconda-remote.log 2>/dev/null || echo "(no remote syslog received)"
 
             set +e
             vout="$(sudo test/ci/verify-neighbor-untouched.sh diskB.raw anaconda 2>&1)"
@@ -348,6 +381,8 @@ jobs:
           name: l2-install-logs
           path: |
             anaconda.log
+            anaconda-remote.log
+            embedded-kickstart.ks
             diskB.raw.neighbor.before
             diskC.raw.neighbor.before
           if-no-files-found: warn

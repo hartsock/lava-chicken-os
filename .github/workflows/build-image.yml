@@ -139,7 +139,7 @@ jobs:
             grep -q "Lava Chicken OS" /usr/lib/os-release || { echo "os-release not rebranded"; fail=1; }
             # variant marker must match the matrix leg that built this image
             v=$(cat /usr/share/lava-chicken/variant 2>/dev/null || echo missing)
-            [ "$v" = "${{ matrix.variant }}" ] || { echo "variant marker '$v' != expected '${{ matrix.variant }}'"; fail=1; }
+            [ "$v" = "${{ matrix.variant }}" ] || { echo "variant marker $v != expected ${{ matrix.variant }}"; fail=1; }
             [ "$fail" = 0 ] && echo "nugget layer OK" || { echo "SMOKE FAILED"; exit 1; }
           '
 

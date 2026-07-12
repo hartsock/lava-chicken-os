@@ -14,6 +14,10 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 
 > *"That's a Steve's Lava Chicken!"* — your PC, every boot.
 
+> **👨‍👩‍👧‍👦 Parents: start here → [INSTALL.md](INSTALL.md)** — how to set this up
+> for your kids, in plain English: keep Windows or go all-in, make the USB
+> stick from your Mac (or Windows), and what the AI helper will and won't do.
+
 ## What you get
 
 - **SteamOS 3.8+ or Bazzite** as the base OS (AMD GPU: both work; NVIDIA: Bazzite only)
@@ -39,8 +43,9 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 
 ## Quick start
 
-1. Install the base OS — see [docs/INSTALL-STEAMOS.md](docs/INSTALL-STEAMOS.md)
-   or [docs/INSTALL-BAZZITE.md](docs/INSTALL-BAZZITE.md).
+1. Install the OS — parents/first-timers: **[INSTALL.md](INSTALL.md)**;
+   deep dives: [docs/INSTALL-STEAMOS.md](docs/INSTALL-STEAMOS.md) /
+   [docs/INSTALL-BAZZITE.md](docs/INSTALL-BAZZITE.md).
 2. Boot to Desktop Mode, open a terminal:
 
    ```bash

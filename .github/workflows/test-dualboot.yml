@@ -72,11 +72,17 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Install pykickstart (ksvalidator)
+      # pykickstart is a Fedora tool with NO Ubuntu apt package (first L2 run:
+      # "E: Unable to locate package pykickstart"). Install the same upstream
+      # project from PyPI via pipx (preinstalled on GitHub runners, puts
+      # ksvalidator on PATH). Syntax-level gate only — the authoritative parse
+      # is Anaconda itself in Layer B.
+      - name: Install ksvalidator (pykickstart via pipx)
         run: |
           set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pykickstart python3
+          pipx install pykickstart \
+            || sudo pip3 install --break-system-packages pykickstart
+          ksvalidator --help >/dev/null   # NOT --version: -v means ks-version
 
       - name: Shipped ISO must stay INTERACTIVE (empty-string kickstart)
         run: |

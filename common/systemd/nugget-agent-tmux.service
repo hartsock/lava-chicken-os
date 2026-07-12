@@ -23,6 +23,10 @@ ExecStartPost=/bin/sh -c 'for u in $(getent group nugget-tui | cut -d: -f4 | tr 
 ExecStop=/usr/bin/tmux -S /run/nugget/tmux.sock kill-server
 Restart=on-failure
 RestartSec=3
+# Fail fast (#27): a start that can't complete must error out, not wedge a
+# start job (first boot once blocked on this indefinitely). Restart above still
+# retries in the background.
+TimeoutStartSec=30
 
 # --- prompt-independent guardrails (coexist with NOPASSWD sudo; defense-in-depth
 #     + observability, not containment — newt OCAP is the eventual real wall) ---

@@ -6,3 +6,4 @@ enable lava-chicken-boot-sound.service
 enable nugget-agent-tmux.service
 enable lava-chicken-models.service
 enable lava-chicken-apps.service
+enable ollama.service

@@ -25,6 +25,7 @@ usage: lacos <command>
   attach        attach the resident nugget agent session (the "nugget" button)
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
   setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
+  doctor        check the box end-to-end; 'sudo lacos doctor --fix' repairs
   models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
   apps          install/refresh the creative + gaming Flatpak apps
   version       print the OS version
@@ -44,6 +45,10 @@ case "${1:-help}" in
     v="$(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?')"
     case "$v" in deck) echo "  boot mode                    console (Game Mode)";;
                  stable) echo "  boot mode                    desktop";; esac
+    if [ -s /var/lib/lava-chicken/firstboot.failed-steps ]; then
+      echo "  !! provisioning steps FAILED: $(tr '\n' ' ' < /var/lib/lava-chicken/firstboot.failed-steps)"
+      echo "     re-run each: sudo bash /usr/share/lava-chicken/provision/<step>"
+    fi
     ;;
   mode)
     # Parent-friendly wrapper around `bootc switch` (#23): pick what the box
@@ -99,6 +104,11 @@ case "${1:-help}" in
     shift
     if s="$(find_bin lacos-setup)"; then exec "$s" "$@"
     else echo "lacos-setup not found" >&2; exit 1; fi
+    ;;
+  doctor)
+    shift
+    if d="$(find_bin lacos-doctor)"; then exec "$d" "$@"
+    else echo "lacos-doctor not found" >&2; exit 1; fi
     ;;
   version) ver ;;
   help|-h|--help) usage ;;

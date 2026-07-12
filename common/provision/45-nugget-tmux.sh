@@ -52,7 +52,11 @@ if [ "$OS" != bazzite ]; then
 fi
 
 systemctl daemon-reload || true
-systemctl enable --now nugget-agent-tmux.service \
+# NEVER block provisioning on a service start (#27): v0.0.1's `enable --now`
+# waited on a start job that never completed and wedged all of first boot.
+systemctl enable nugget-agent-tmux.service 2>/dev/null \
+  || pwarn "couldn't enable nugget-agent-tmux.service"
+systemctl start --no-block nugget-agent-tmux.service \
   || pwarn "nugget-agent-tmux.service didn't start — check 'systemctl status nugget-agent-tmux'"
 
 # --- per-user "nugget" persona, rendered once and dropped into every home ----
@@ -91,6 +95,14 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
     install -d -m0755 -o "$uname" "$uhome/.config/autostart"
     install -m0644 -o "$uname" "$HERE/../autostart/lava-chicken-wallpaper.desktop" \
       "$uhome/.config/autostart/lava-chicken-wallpaper.desktop"
+  fi
+  # Game-Mode startup movie (#31): per-user Steam uioverrides — used when the
+  # box runs in console mode; harmless on desktop.
+  if [ -r "$HERE/../brand/boot-movie.webm" ]; then
+    install -d -o "$uname" "$uhome/.steam/root/config/uioverrides/movies" 2>/dev/null \
+      && install -m0644 -o "$uname" "$HERE/../brand/boot-movie.webm" \
+           "$uhome/.steam/root/config/uioverrides/movies/lava-chicken.webm" 2>/dev/null \
+      || true
   fi
 done < <(getent passwd)
 

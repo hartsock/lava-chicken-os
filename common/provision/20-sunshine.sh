@@ -15,13 +15,37 @@ USER_NAME="$(primary_user)"
 OS="$(os_id)"
 
 # --- make sure Sunshine is present + its user service is enabled ------------
+# Pin the encoder BEFORE starting Sunshine (#45). On Polaris/older AMD, Sunshine's
+# encoder auto-probe SEGFAULTS in the Vulkan-encode probe before it ever reaches
+# VAAPI (crash-loop). VAAPI is the universal AMD-Mesa path (APPS.md), so default
+# to it. Newer AMD cards can delete this line to re-enable auto-probe. Idempotent.
+pin_vaapi_encoder() {
+  local home cfg
+  home="$(getent passwd "$USER_NAME" | cut -d: -f6)"; [ -n "$home" ] || return 0
+  cfg="$home/.config/sunshine/sunshine.conf"
+  install -d -m0755 -o "$USER_NAME" "$(dirname "$cfg")"
+  [ -f "$cfg" ] || { : > "$cfg"; chown "$USER_NAME" "$cfg"; }
+  if ! grep -qE '^[[:space:]]*encoder[[:space:]]*=' "$cfg"; then
+    printf 'encoder = vaapi\n' >> "$cfg"   # avoid the crashing auto-probe on Polaris
+    plog "Sunshine: pinned encoder = vaapi (avoids Polaris auto-probe segfault; #45)"
+  fi
+}
+
 enable_user_service() {
   # user services need lingering to run without an active login session
   loginctl enable-linger "$USER_NAME" 2>/dev/null || true
   as_primary systemctl --user daemon-reload 2>/dev/null || true
-  if as_primary systemctl --user list-unit-files 2>/dev/null | grep -q '^sunshine\.service'; then
-    as_primary systemctl --user enable --now sunshine.service && \
-      plog "Sunshine user service enabled." && return 0
+  pin_vaapi_encoder
+  # Match ANY sunshine-ish user unit (#45): LizardByte renamed it
+  # sunshine.service -> app-dev.lizardbyte.app.Sunshine.service; a hard-coded
+  # name silently skipped the enable. Grep case-insensitively so a future
+  # rename can't break this again.
+  local unit
+  unit="$(as_primary systemctl --user list-unit-files --no-legend 2>/dev/null \
+          | awk '{print $1}' | grep -iE 'sunshine' | head -1)"
+  if [ -n "$unit" ]; then
+    as_primary systemctl --user enable --now "$unit" && \
+      plog "Sunshine user service enabled ($unit)." && return 0
   fi
   return 1
 }

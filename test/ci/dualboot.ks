@@ -55,8 +55,16 @@ part /boot/efi --onpart=vda1 --fstype=efi --noformat
 # partitions are carved from the unallocated tail. --ondisk=vda keeps them on the
 # target disk. If Anaconda ever could not fit these in free space it would error
 # rather than reclaim vda2 — which is exactly the safety we are proving.
+#
+# btrfs MUST use the volume form (part btrfs.NN + btrfs /): the shorthand
+# `part / --fstype=btrfs` parses in ksvalidator but blivet executes its format
+# action as a silent NO-OP (no mkfs.btrfs is ever run — proved by run
+# 29177544854's virtio log), so MountFilesystemsTask then dies on a raw
+# partition with "bad superblock on /dev/vda4" and the whole install aborts.
+# That single line was the phantom behind L2 runs 1-5.
 part /boot --fstype=ext4 --size=1024 --ondisk=vda
-part /     --fstype=btrfs --grow    --ondisk=vda
+part btrfs.01 --fstype=btrfs --grow --ondisk=vda
+btrfs / --label=lacos-root btrfs.01
 
 # NO explicit `bootloader` line: this is a UEFI/OVMF q35 install, where the
 # loader lives on the ESP and bootupd owns the \EFI\fedora entry. A BIOS-style

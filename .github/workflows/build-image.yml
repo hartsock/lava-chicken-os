@@ -109,6 +109,9 @@ jobs:
             # account seed + agent persona + branded payload
             need_f /usr/lib/sysusers.d/nugget.conf
             need_f /usr/share/lava-chicken/persona/nugget-persona.md
+            # bundled newt skills (#19) must ship in the payload
+            need_f /usr/share/lava-chicken/newt-skills/youtube-prep/SKILL.md
+            need_f /usr/share/lava-chicken/newt-skills/video-edit/SKILL.md
             need_x /usr/share/lava-chicken/bin/lacos-setup
             need_x /usr/share/lava-chicken/bin/lacos-pull-models
             # original brand media that must ship in the image

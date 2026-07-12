@@ -61,10 +61,31 @@ install -d -m0755 "$STATE/persona"
 sed "s/@AGENT_NAME@/$DISP/g" "$HERE/../persona/nugget-persona.md" > "$STATE/persona/nugget.md"
 chmod 0644 "$STATE/persona/nugget.md"
 install -D -m0644 "$STATE/persona/nugget.md" /etc/skel/.newt/personas/nugget.md
+# Bundled newt SKILLS ride the same rails (#19): whole skill dirs copied to
+# ~/.newt/skills/<name>/ (newt's per-user discovery path; sibling files ship
+# too, per the skill format). Their frontmatter caveats (net: {only: []})
+# DECLARE the prep-never-publish leash; newt currently PARSES caveats without
+# enforcing them (upstream parse-only MVP), so today's boundary is the skill
+# body + each user's own OS permissions — the caveats become load-bearing when
+# newt's meet-enforcement lands.
+SKILLS_SRC="$HERE/../newt-skills"
+for sk in "$SKILLS_SRC"/*/; do
+  [ -f "$sk/SKILL.md" ] || continue
+  skn="$(basename "$sk")"
+  install -d -m0755 "/etc/skel/.newt/skills/$skn"
+  cp -a "$sk"/. "/etc/skel/.newt/skills/$skn/"
+done
 while IFS=: read -r uname _ uid _ _ uhome _; do
   [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -d "$uhome" ] || continue
   install -d -m0755 -o "$uname" "$uhome/.newt/personas"
   install -m0644 -o "$uname" "$STATE/persona/nugget.md" "$uhome/.newt/personas/nugget.md"
+  for sk in "$SKILLS_SRC"/*/; do
+    [ -f "$sk/SKILL.md" ] || continue
+    skn="$(basename "$sk")"
+    install -d -m0755 -o "$uname" "$uhome/.newt/skills/$skn"
+    cp -a "$sk"/. "$uhome/.newt/skills/$skn/"
+    chown -R "$uname" "$uhome/.newt/skills/$skn"
+  done
   # default wallpaper on first login (Bazzite; SteamOS applies it via scripts/10)
   if [ "$OS" = bazzite ] && [ -r "$HERE/../autostart/lava-chicken-wallpaper.desktop" ]; then
     install -d -m0755 -o "$uname" "$uhome/.config/autostart"

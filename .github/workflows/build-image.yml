@@ -123,7 +123,21 @@ jobs:
             # bundled newt skills (#19) must ship in the payload
             need_f /usr/share/lava-chicken/newt-skills/youtube-prep/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/video-edit/SKILL.md
+            # ollama must be BAKED (#28) — v0.0.1 shipped none and the agent was DOA
+            need_x /usr/bin/ollama
+            need_f /usr/lib/systemd/system/ollama.service
+            need_f /usr/lib/sysusers.d/ollama.conf
+            grep -q "enable ollama.service" /usr/lib/systemd/system-preset/80-lava-chicken.preset \
+              || { echo "ollama.service missing from preset"; fail=1; }
+            # splash step must ship (#31) + the plymouth SCRIPT plugin our theme
+            # needs (real hardware failed on its absence)
+            need_x /usr/share/lava-chicken/provision/07-plymouth.sh
+            need_f /usr/lib64/plymouth/script.so
+            # never idle-suspend (#33): sleep path must be masked in the image
+            [ "$(readlink /etc/systemd/system/suspend.target 2>/dev/null)" = /dev/null ] \
+              || { echo "suspend.target not masked"; fail=1; }
             need_x /usr/share/lava-chicken/bin/lacos-setup
+            need_x /usr/share/lava-chicken/bin/lacos-doctor
             need_x /usr/share/lava-chicken/bin/lacos-pull-models
             # original brand media that must ship in the image
             need_f /usr/share/lava-chicken/brand/boot-sound.wav

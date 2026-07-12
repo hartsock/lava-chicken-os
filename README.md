@@ -26,8 +26,9 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 - **Desktop login sound** (same audio, systemd user service)
 - **Minecraft-style wallpapers** — bring your own, or generate original blocky
   art with the included script
-- **[ollama](https://ollama.com)** running on your AMD GPU (ROCm), installed
-  entirely in `$HOME` so it survives SteamOS atomic updates
+- **[ollama](https://ollama.com)** baked into the image, loopback-only (models
+  live in `/var`, surviving atomic updates); ROCm on supported AMD GPUs, CPU
+  inference on older cards (e.g. Polaris)
 - **[newt-agent](https://github.com/Gilamonster-Foundation/newt-agent)** —
   small, fast, local-first agentic coder, pointed at your local ollama
 - **Minecraft Java Edition mod toolchain** — JDK 21, Gradle (via SDKMAN),
@@ -40,6 +41,27 @@ with <b>Nugget</b>, a resident AI agent living on the box.
   Sunshine/Moonlight game streaming, ready from first boot
 - **Bootc image** — Bazzite builds in GitHub Actions → GHCR with an install ISO;
   SteamOS gets the same setup via `bootstrap.sh`
+
+## Status — honest, per feature (v0.0.x)
+
+This project versions `v0.0.1 → v0.0.99` until a fresh install delivers every
+promise end-to-end; **v0.1.0 is that gate**. Where things stand after the first
+real-hardware install (2026-07-12):
+
+| Feature | Status |
+|---|---|
+| Bootc image + `:stable`/`:deck` variants, CI-built & signed | ✅ works, CI-verified |
+| Day-zero remote access (GitHub-key SSH) | ✅ **verified on hardware** |
+| `lacos mode console\|desktop` switching | ✅ verified on hardware |
+| Dual-boot safety (installer can't touch Windows) | ✅ proven nightly in CI (byte-checksums) |
+| Resident agent + ollama | 🔧 fixed — ollama now baked ([#27](https://github.com/hartsock/lava-chicken-os/issues/27), [#28](https://github.com/hartsock/lava-chicken-os/issues/28)); re-verify on hardware |
+| First-boot provisioning (accounts, persona, skills, wallpaper) | 🔧 fixed — was wedging on v0.0.1 ([#27](https://github.com/hartsock/lava-chicken-os/issues/27)); CI now requires convergence ([#29](https://github.com/hartsock/lava-chicken-os/issues/29)) |
+| Setup wizard: kid accounts + Tailscale | 🔧 fixed ([#30](https://github.com/hartsock/lava-chicken-os/issues/30)) |
+| Boot splash, chime, Game-Mode movie | 🔧 fixed ([#31](https://github.com/hartsock/lava-chicken-os/issues/31)); visible from next boot after update |
+| SteamOS-base parity (`bootstrap.sh`) | 🚧 designed, never hardware-tested ([#13](https://github.com/hartsock/lava-chicken-os/issues/13)) |
+
+If a fresh install disagrees with this table, that is a bug —
+[tell us](https://github.com/hartsock/lava-chicken-os/issues).
 
 ## Quick start
 

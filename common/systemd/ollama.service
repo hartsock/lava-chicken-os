@@ -1,0 +1,29 @@
+# LaCOS ollama unit (#28) — baked into the image (the official installer's unit
+# would land in /etc and target /usr/local, which is a /var symlink on ostree).
+# Loopback-only by design: neither the model server nor the agent is network-
+# reachable. Models live in /var/lib/ollama (machine-local, survives updates).
+[Unit]
+Description=Ollama local model server (loopback-only)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ollama serve
+User=ollama
+Group=ollama
+StateDirectory=ollama
+Environment=OLLAMA_HOST=127.0.0.1:11434
+Environment=OLLAMA_MODELS=/var/lib/ollama
+Environment=HOME=/var/lib/ollama
+Restart=on-failure
+RestartSec=3
+# Hardening note: NO IPAddressDeny here — the ollama SERVER performs the model
+# downloads (registry.ollama.ai), so egress must stay open; the loopback BIND
+# (OLLAMA_HOST above) is the real inbound-exposure control. (Self-review catch:
+# an earlier draft denied egress and would have broken every model pull.)
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ollama
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

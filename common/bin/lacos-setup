@@ -60,6 +60,9 @@ if ask_yesno "Do you use Tailscale (mesh VPN / remote access)?"; then
     sudo systemctl enable --now tailscaled 2>/dev/null || true
   fi
   if command -v tailscale >/dev/null 2>&1; then
+    # Bazzite SHIPS tailscale with the daemon disabled — `tailscale up` fails
+    # without this (hardware-day finding, #30).
+    sudo systemctl enable --now tailscaled 2>/dev/null || true
     key="$(ask "Tailscale auth key (blank = open a browser login link)?" "")"
     # --accept-dns=false so a home DNS (below) isn't shadowed by MagicDNS.
     if [ -n "$key" ]; then
@@ -93,7 +96,22 @@ if ask_yesno "Use WireGuard for low-latency game streaming (Sunshine/Moonlight)?
   save LAVA_WIREGUARD yes
 fi
 
-# 6) models -----------------------------------------------------------------
+# 6) kid accounts (#30: was spec'd but never implemented) --------------------
+if ask_yesno "Set up kid accounts (passwordless local users, no admin rights)?"; then
+  kids="$(ask "Kid usernames (space-separated, e.g. 'kid1 kid2')?" "${LAVA_KID_USERS:-}")"
+  if [ -n "$kids" ]; then
+    auto="$(ask "Which one auto-logs-in at boot?" "${kids%% *}")"
+    PROV=/usr/share/lava-chicken/provision; [ -d "$PROV" ] || PROV="$STATE/provision"
+    if sudo LAVA_KID_USERS="$kids" LAVA_AUTOLOGIN_USER="$auto" bash "$PROV/30-users.sh"; then
+      say "kid accounts ready: $kids (autologin: $auto)"
+    else
+      say "kid-account step failed — re-run: sudo LAVA_KID_USERS='$kids' bash $PROV/30-users.sh"
+    fi
+    save LAVA_KID_USERS "$kids"; save LAVA_AUTOLOGIN_USER "$auto"
+  fi
+fi
+
+# 7) models -----------------------------------------------------------------
 say "LLM models: 'lacos models' to (re)pull; edit /etc/lava-chicken/models.conf to change the set."
 
 date -u +%FT%TZ | sudo tee "$STAMP" >/dev/null

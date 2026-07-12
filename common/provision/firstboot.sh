@@ -27,28 +27,41 @@ else
   echo "$NAME" > /etc/hostname 2>/dev/null || true
 fi
 
+# HARDWARE-DAY fix (#27): every step is TIME-BOUNDED so no single step can
+# wedge first boot forever (v0.0.1 hung on a service start and never finished,
+# re-running + re-hanging every boot). 5 min is generous for any one step.
 run_step() {
   local script="$1"
   plog "==> $script"
-  if ! bash "$HERE/$script"; then
-    pwarn "$script failed — fix and re-run: sudo bash $HERE/$script"
+  if ! timeout --signal=TERM --kill-after=30 300 bash "$HERE/$script"; then
+    local rc=$?
+    [ "$rc" -ge 124 ] && pwarn "$script TIMED OUT after 5 min (killed)" \
+                      || pwarn "$script failed (rc=$rc)"
+    pwarn "re-run by hand: sudo bash $HERE/$script"
+    echo "$script" >> "$STAMP_DIR/firstboot.failed-steps"
     return 1
   fi
 }
 
 rc=0
+rm -f "$STAMP_DIR/firstboot.failed-steps"
 run_step 10-ssh-github.sh  || rc=1   # admin (primary) key-only SSH (Sunshine untouched)
 run_step 20-sunshine.sh    || rc=1   # remote desktop preserved + firewalled
 run_step 30-users.sh       || rc=1   # kid accounts (passwordless) + autologin
 run_step 40-nugget-user.sh || rc=1   # dedicated nugget account (propose-&-approve)
 run_step 45-nugget-tmux.sh || rc=1   # resident tmux + all-user button + killswitch
-run_step 50-nugget-agent.sh|| rc=1   # ollama + latest newt release + persona + start
+run_step 50-nugget-agent.sh|| rc=1   # ollama config + latest newt release + persona
+run_step 07-plymouth.sh    || rc=1   # splash theme + initramfs regen (next boot)
 run_step 60-apps.sh        || rc=1   # creative + gaming apps (background install)
 
+# ALWAYS stamp (#27): an unattended retry-next-boot loop is how a box wedges
+# forever. Failed steps are recorded in firstboot.failed-steps, surfaced by
+# `lacos status`, and each is safe to re-run by hand.
+date -u +%FT%TZ > "$STAMP"
 if [ "$rc" -eq 0 ]; then
-  date -u +%FT%TZ > "$STAMP"
   plog "first-boot provisioning complete."
 else
-  pwarn "one or more steps failed; NOT stamping — will retry next boot."
+  pwarn "provisioning finished WITH FAILURES: $(tr '\n' ' ' < "$STAMP_DIR/firstboot.failed-steps" 2>/dev/null)"
+  pwarn "stamped anyway (no unattended retry loops); see 'lacos status'."
   exit 1
 fi

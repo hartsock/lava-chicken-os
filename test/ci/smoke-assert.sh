@@ -106,6 +106,43 @@ ok "nugget system user present"
 
 # COMPLETION SENTINEL — the caller greps for this exact line. Reaching it means
 # every check above ran and passed; an empty/truncated script cannot emit it.
+
+# ── firstboot must COMPLETE (#27/#29) ────────────────────────────────────────
+# The v0.0.1 wedge (firstboot hung forever, no stamp, re-hang every boot) sailed
+# through CI because nothing waited for provisioning. Steps are now
+# timeout-bounded and always stamp, so CI can require convergence.
+echo "--- waiting for first-boot provisioning to complete (max 8 min) ---"
+fb_ok=0
+for i in $(seq 1 96); do
+  if [ -f /var/lib/lava-chicken/firstboot.done ]; then fb_ok=1; break; fi
+  sleep 5
+done
+if [ "$fb_ok" != 1 ]; then
+  echo "FAIL: firstboot.done never appeared — provisioning did not converge"
+  sudo systemctl status lava-chicken-firstboot.service --no-pager | head -15 || true
+  sudo journalctl -u lava-chicken-firstboot.service --no-pager | tail -40 || true
+  exit 1
+fi
+echo "PASS: first-boot provisioning completed"
+if [ -s /var/lib/lava-chicken/firstboot.failed-steps ]; then
+  echo "FAIL: provisioning completed but steps FAILED: $(tr '\n' ' ' < /var/lib/lava-chicken/firstboot.failed-steps)"
+  sudo journalctl -u lava-chicken-firstboot.service --no-pager | tail -60 || true
+  exit 1
+fi
+echo "PASS: all provisioning steps succeeded"
+
+# ── ollama is baked + serving (#28) ──────────────────────────────────────────
+test -x /usr/bin/ollama || { echo "FAIL: /usr/bin/ollama not baked"; exit 1; }
+ol_ok=0
+for i in $(seq 1 24); do
+  systemctl is-active ollama.service >/dev/null 2>&1 && { ol_ok=1; break; }
+  sleep 5
+done
+[ "$ol_ok" = 1 ] || { echo "FAIL: ollama.service not active"; sudo journalctl -u ollama --no-pager | tail -20 || true; exit 1; }
+curl -fsS --max-time 5 http://127.0.0.1:11434/api/version >/dev/null \
+  && echo "PASS: ollama baked, active, answering on loopback" \
+  || { echo "FAIL: ollama not answering on 127.0.0.1:11434"; exit 1; }
+
 echo "L1b smoke: ALL PASS"
 
 # ── OUT OF SCOPE for this tier (first-boot / networked — do NOT assert here) ──

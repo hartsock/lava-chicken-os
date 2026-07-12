@@ -25,9 +25,34 @@ chmod +x "$PAY"/provision/*.sh "$PAY"/bin/* "$PAY"/libexec/* 2>/dev/null || true
 # them — a bootc image updates by rebasing (not dnf), and mesa is already baked in.
 rm -f /etc/yum.repos.d/terra*.repo || true
 
+# --- ollama: BAKE the model server into the image (#28) ----------------------
+# v0.0.1 shipped no ollama installer at all — the resident agent was dead on
+# arrival. Bake it here: the official tarball's layout (bin/, lib/ollama/)
+# extracts straight into REAL /usr (NOT /usr/local, which is a /var/usrlocal
+# symlink on ostree and is not part of the committed image). Unit + sysusers
+# are ours (loopback-only, models in /var/lib/ollama). Weekly rebuilds track
+# the latest release, same policy as newt.
+if [ ! -x /usr/bin/ollama ]; then
+  echo "[lava-chicken build] baking ollama (official linux-amd64 tarball)"
+  curl -fsSL --retry 3 https://ollama.com/download/ollama-linux-amd64.tgz \
+    | tar -xz -C /usr
+  test -x /usr/bin/ollama || { echo "FATAL: ollama bake failed"; exit 1; }
+fi
+install -D -m0644 "$PAY/systemd/ollama.service"  /usr/lib/systemd/system/ollama.service
+install -D -m0644 "$PAY/sysusers/ollama.conf"    /usr/lib/sysusers.d/ollama.conf
+
 # aplay for the pre-session boot sound (Bazzite may already ship alsa-utils).
 rpm-ostree install --idempotent alsa-utils 2>/dev/null \
   || dnf install -y alsa-utils 2>/dev/null || true
+
+# Plymouth SCRIPT plugin (#31): our theme is a script theme and Bazzite does NOT
+# ship the plugin — real hardware failed with "/usr/lib64/plymouth/script.so
+# does not exist". Bake it, and fail the build loudly if it cannot be installed
+# (a silent miss here means no boot splash on every box).
+rpm-ostree install --idempotent plymouth-plugin-script 2>/dev/null \
+  || dnf install -y plymouth-plugin-script 2>/dev/null || true
+[ -e /usr/lib64/plymouth/script.so ] \
+  || { echo "FATAL: plymouth script plugin missing after install"; exit 1; }
 
 # --- Plymouth boot splash (nugget + "Lava Chicken OS") ----------------------
 # Install the theme and make it the default. Regenerating the initramfs (-R) in
@@ -73,7 +98,12 @@ done
 systemctl enable sshd.service
 systemctl enable lava-chicken-firstboot.service
 systemctl preset lava-chicken-boot-sound.service nugget-agent-tmux.service \
-  lava-chicken-models.service lava-chicken-apps.service 2>/dev/null || true
+  lava-chicken-models.service lava-chicken-apps.service ollama.service 2>/dev/null || true
+
+# --- never idle-suspend (#33): this is an always-on console/streamer/agent box.
+# KDE default idle-suspend put a real box to SLEEP mid-provisioning and would
+# equally kill Sunshine sessions and SSH admin. Mask the sleep path in the image.
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target 2>/dev/null || true
 
 # --- LaCOS branding in os-release (neofetch / `cat /etc/os-release` flex) ----
 # Rebrand PRETTY_NAME + add LaCOS fields; keep ID (Bazzite-derived) so nothing

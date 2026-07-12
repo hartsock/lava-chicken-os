@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# lacos doctor — on-box diagnose (+ repair with --fix). Issue #35, born on
+# hardware day when provisioning broke and the recovery script lived in /tmp
+# (tmpfs ate it on reboot). This is that recovery, permanent and generalized.
+#
+#   lacos doctor          check everything, PASS/WARN/FAIL report (safe, no sudo)
+#   sudo lacos doctor --fix   re-run the idempotent remedies for whatever failed
+#
+# Every remedy is one of the numbered provision steps (all idempotent) or a
+# service enable — the same things a clean first boot does.
+set -u
+PAY=/usr/share/lava-chicken
+STATE=/var/lib/lava-chicken
+[ -d "$PAY/provision" ] || PAY="$STATE"          # SteamOS staging fallback
+FIX=0; [ "${1:-}" = "--fix" ] && FIX=1
+if [ "$FIX" = 1 ] && [ "$(id -u)" != 0 ]; then
+  echo "--fix needs admin rights:  sudo lacos doctor --fix"; exit 1
+fi
+
+declare -a REPORT=() REMEDIES=()
+note() { REPORT+=("$1"); }                       # "PASS ..." / "WARN ..." / "FAIL ..."
+remedy() { REMEDIES+=("$1"); }                   # commands run under --fix (deduped)
+provision() { timeout --signal=TERM --kill-after=30 300 bash "$PAY/provision/$1"; }
+
+# ── checks ────────────────────────────────────────────────────────────────────
+# 1. first-boot provisioning
+if [ -f "$STATE/firstboot.done" ]; then
+  if [ -s "$STATE/firstboot.failed-steps" ]; then
+    note "FAIL first-boot finished with failed steps: $(tr '\n' ' ' < "$STATE/firstboot.failed-steps")"
+    while read -r st; do [ -n "$st" ] && remedy "provision $st"; done < "$STATE/firstboot.failed-steps"
+  else
+    note "PASS first-boot provisioning complete"
+  fi
+else
+  note "FAIL first-boot provisioning never completed"
+  remedy "rerun-firstboot"
+fi
+
+# 2. core services
+for svc in sshd ollama nugget-agent-tmux lava-chicken-boot-sound; do
+  st="$(systemctl is-active "$svc.service" 2>/dev/null || true)"
+  en="$(systemctl is-enabled "$svc.service" 2>/dev/null || true)"
+  case "$svc:$st" in
+    sshd:active|ollama:active|nugget-agent-tmux:active) note "PASS $svc active" ;;
+    lava-chicken-boot-sound:*)  # oneshot: enabled matters, active does not
+      [ "$en" = enabled ] && note "PASS boot chime enabled" \
+        || { note "FAIL boot chime not enabled"; remedy "enable lava-chicken-boot-sound.service"; } ;;
+    *) note "FAIL $svc is $st (${en:-unknown})"
+       remedy "enable-start $svc.service" ;;
+  esac
+done
+
+# 3. ollama really answering (the agent's lifeline)
+if command -v ollama >/dev/null 2>&1; then
+  if curl -fsS --max-time 3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+    note "PASS ollama answering on loopback"
+  else
+    note "FAIL ollama installed but not answering on 127.0.0.1:11434"
+    remedy "enable-start ollama.service"
+  fi
+else
+  note "FAIL ollama not installed (image too old? 'bootc upgrade' gets the baked one)"
+  remedy "hint-bootc-upgrade"
+fi
+
+# 4. newt + per-user agent kit (persona / skills for the invoking human)
+[ -x "$STATE/bin/newt" ] && note "PASS newt installed (shared)" \
+  || { note "FAIL newt missing"; remedy "provision 50-nugget-agent.sh"; }
+H="${SUDO_USER:+/var/home/$SUDO_USER}"; H="${H:-$HOME}"
+if [ -f "$H/.newt/personas/nugget.md" ] && [ -d "$H/.newt/skills" ]; then
+  note "PASS persona + skills present for $(basename "$H")"
+else
+  note "FAIL persona/skills missing for $(basename "$H")"
+  remedy "provision 45-nugget-tmux.sh"
+fi
+
+# 5. splash + suspend + models
+theme="$(plymouth-set-default-theme 2>/dev/null || echo none)"
+[ "$theme" = lava-chicken ] && note "PASS boot splash theme set" \
+  || { note "FAIL boot splash theme is '$theme' (want lava-chicken)"; remedy "provision 07-plymouth.sh"; }
+if [ "$(readlink /etc/systemd/system/suspend.target 2>/dev/null)" = /dev/null ]; then
+  note "PASS auto-suspend masked (always-on box)"
+else
+  note "FAIL auto-suspend NOT masked — the box can sleep mid-stream / mid-provisioning"
+  remedy "mask-suspend"
+fi
+if command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | grep -q .; then
+  note "PASS models present ($(ollama list 2>/dev/null | tail -n +2 | wc -l | xargs) local)"
+else
+  note "WARN no local models yet — run: lacos models  (~5 GB)"
+fi
+
+# 6. context lines (never fail)
+note "INFO boot mode: $(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?') · disk free: $(df -h /var 2>/dev/null | awk 'NR==2{print $4}')"
+
+# ── report ────────────────────────────────────────────────────────────────────
+echo "lacos doctor — $(hostname) — LaCOS $(cat /etc/lava-chicken/version 2>/dev/null || echo '?')"
+printf '  %s\n' "${REPORT[@]}"
+fails=$(printf '%s\n' "${REPORT[@]}" | grep -c '^FAIL') || true
+
+if [ "$FIX" != 1 ]; then
+  if [ "${fails:-0}" -gt 0 ]; then
+    echo; echo "$fails problem(s). Repair with:  sudo lacos doctor --fix"
+    exit 1
+  fi
+  echo; echo "All good. 🐔"; exit 0
+fi
+
+# ── repair (--fix) ────────────────────────────────────────────────────────────
+[ "${fails:-0}" -eq 0 ] && { echo; echo "Nothing to fix. 🐔"; exit 0; }
+echo; echo "── repairing ──"
+mapfile -t todo < <(printf '%s\n' "${REMEDIES[@]}" | awk '!seen[$0]++')
+rc=0
+for r in "${todo[@]}"; do
+  echo "==> $r"
+  case "$r" in
+    provision\ *)        provision "${r#provision }" || rc=1 ;;
+    rerun-firstboot)     rm -f "$STATE/firstboot.done" "$STATE/firstboot.failed-steps"
+                         provision firstboot.sh || rc=1 ;;
+    enable\ *)           systemctl enable "${r#enable }" || rc=1 ;;
+    enable-start\ *)     u="${r#enable-start }"
+                         systemctl enable "$u" 2>/dev/null
+                         systemctl reset-failed "$u" 2>/dev/null
+                         systemctl start --no-block "$u" || rc=1 ;;
+    mask-suspend)        systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target || rc=1 ;;
+    hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
+  esac
+done
+echo; echo "── done (rc=$rc) — re-check: lacos doctor ──"
+exit "$rc"

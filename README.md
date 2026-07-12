@@ -50,7 +50,8 @@ real-hardware install (2026-07-12):
 
 | Feature | Status |
 |---|---|
-| Bootc image + `:stable`/`:deck` variants, CI-built & signed | ✅ works, CI-verified |
+| Bootc image + `:stable`/`:deck` variants, CI-built & signed | ✅ builds + boots, CI-verified (`:stable`) |
+| `:deck` Game Mode on **Polaris GPUs** (RX 5xx) | 🚧 black screen — upstream gamescope bug ([#38](https://github.com/hartsock/lava-chicken-os/issues/38)); use Steam **Big Picture** on `:stable` meanwhile |
 | Day-zero remote access (GitHub-key SSH) | ✅ **verified on hardware** |
 | `lacos mode console\|desktop` switching | ✅ verified on hardware |
 | Dual-boot safety (installer can't touch Windows) | ✅ proven nightly in CI (byte-checksums) |

@@ -1,0 +1,40 @@
+# bootc-image-builder config for the L1b KVM boot-smoke qcow2 — CI ONLY.
+#
+# This is DELIBERATELY separate from bazzite/image.toml. Two reasons:
+#   1. image.toml carries [customizations.installer.kickstart]; bib rejects a
+#      config that has BOTH a kickstart block and a [[customizations.user]] block
+#      (they are mutually exclusive). So we cannot just add a user to image.toml.
+#   2. Keeping the CI login user (and its CI-only passwordless-sudo drop-in) OUT
+#      of image.toml guarantees this throwaway account NEVER ships in the release
+#      ISO/qcow2 — it exists only for the test qcow2 built from the pushed image
+#      inside this workflow.
+#
+# The shipped sshd (bazzite/system_files/etc/ssh/sshd_config.d/10-lava-chicken.conf)
+# is KEY-ONLY and denies root login, so:
+#   - `key` is what actually lets CI SSH in (a password never authenticates over
+#     SSH); it is filled in at runtime with an EPHEMERAL pubkey generated in-job
+#     (the private key never leaves the runner and is never uploaded).
+#   - the user is NON-root (PermitRootLogin no), in group wheel for in-guest sudo.
+# The bib-created user is present the instant the VM reaches multi-user — it does
+# NOT depend on lava-chicken-firstboot.service, so the smoke SSH login is reliable
+# on first boot even while first-boot is still churning.
+[[customizations.user]]
+name = "cismoke"
+key = "__PUBKEY__"
+groups = ["wheel"]
+
+# ── CI-ONLY passwordless sudo for cismoke ────────────────────────────────────
+# `bootc status` (and a clean `systemctl poweroff` over a BatchMode SSH pipe)
+# REQUIRE root — bootc refuses to query root-privileged state as an unprivileged
+# user (bootc-dev/bootc#409). Fedora's default %wheel needs a PASSWORD, and the
+# bib user is key-only with no password, so plain `sudo` over the non-interactive
+# `bash -s` SSH pipe would hang/deny. This drop-in grants cismoke NOPASSWD sudo.
+#
+# SAFE because it lives only in this CI-only config, never in bazzite/image.toml,
+# so it cannot leak into a released artifact. sudo ignores sudoers.d filenames
+# containing a '.', so the name is dot-free. Mode 0440, root-owned (bib default
+# owner is root) — the mode sudo requires for a valid sudoers fragment.
+[[customizations.files]]
+path = "/etc/sudoers.d/99-cismoke"
+mode = "0440"
+data = "cismoke ALL=(ALL) NOPASSWD:ALL\n"

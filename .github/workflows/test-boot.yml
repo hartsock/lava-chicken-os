@@ -1,0 +1,220 @@
+name: test-boot
+
+# ── L1b — KVM boot smoke ─────────────────────────────────────────────────────
+# TIER: post-merge integration (docs/TEST-PLAN.md Tier 1).
+# CATCHES: "the pushed image builds a disk that will not BOOT into a working
+#   LaCOS" — a class the pre-push L1 static smoke (which only inspects the image
+#   FILESYSTEM, never boots it) cannot see: broken initramfs / bootloader, an
+#   unbootable btrfs layout, sshd not actually starting, a bad os-release, a
+#   missing baked unit or branded binary at RUNTIME.
+# HOW: pull the PUSHED :stable image, rebuild it into a qcow2 with a throwaway CI
+#   SSH user (bib [[customizations.user]]), boot it headless under KVM/UEFI, SSH
+#   in, run the in-guest health assertions, then power off cleanly.
+# TRIGGER: workflow_run(build-image succeeded on main) + manual dispatch +
+#   nightly. NOT on pull_request — a 15-30 min KVM boot must not slow PR merges,
+#   and it needs the image ALREADY PUSHED to GHCR (build-image skips push on PRs).
+# NOTE: workflow_run + schedule only fire from this file as it exists on the
+#   DEFAULT branch (main). It does nothing until merged; test via dispatch first.
+#
+# KVM POLICY: /dev/kvm is present on free x86_64 ubuntu-24.04 runners in practice
+#   but is NOT contractually guaranteed. This tier's WHOLE JOB is to prove the
+#   image boots, so if /dev/kvm is absent we FAIL LOUDLY rather than skip-green:
+#   a silent green no-op would turn the only test that proves the image BOOTS
+#   into a check that asserts nothing (a runner-side KVM regression would go
+#   unnoticed on the nightly). Software TCG is 5-10x slower and too flaky for a
+#   full Bazzite desktop boot, so it is intentionally NOT used as a fallback.
+
+on:
+  workflow_run:
+    workflows: ["build-image"] # matches build-image.yml's `name:`, not the filename
+    types: [completed]
+    branches: [main] # only build-image runs whose head branch is main (i.e. push-to-main)
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 8 * * *" # nightly 08:00 UTC
+
+# Own concurrency group so boot smokes never cancel / queue behind image builds.
+concurrency:
+  group: test-boot-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read # GITHUB_TOKEN can pull the same-owner GHCR :stable package
+
+env:
+  IMAGE_NAME: lava-chicken-os
+  # GHCR requires a lowercase owner; every consumer lowercases at point of use
+  # with ${IMAGE_REGISTRY@L} — matches build-image.yml.
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  l1b-boot-smoke:
+    # Run only when the upstream build actually succeeded. schedule/dispatch have
+    # no workflow_run object, so event_name != 'workflow_run' lets them through.
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    runs-on: ubuntu-24.04 # x86_64: KVM nested-virt is only on the x86_64 hosted image
+    timeout-minutes: 45 # a hung guest fails here instead of at the 6h default
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # workflow_run checks out main's tip by default; pin to the exact built
+          # commit so test/ci/* matches the image under test.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main @ pinned
+        with:
+          tool-cache: true
+          docker-images: true
+          large-packages: true
+
+      - name: Pull the pushed image into container storage (bib reads it locally)
+        run: |
+          set -euxo pipefail
+          # Log in AS ROOT (not docker/login-action) so the sudo podman that bib
+          # reads from can see the auth — matches build-image.yml's build-vm job.
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          sudo podman pull "${IMAGE_REGISTRY@L}/${IMAGE_NAME}:stable"
+
+      - name: Generate an ephemeral CI SSH key + render the qcow2 bib config
+        run: |
+          set -euo pipefail
+          # Throwaway keypair — the PRIVATE key stays on the runner and is never
+          # uploaded as an artifact; the whole pair is disposable per run.
+          ssh-keygen -t ed25519 -N '' -C lacos-ci-smoke -f ci_key
+          PUBKEY="$(cat ci_key.pub)"
+          # Render the CI-only, kickstart-free bib config (see the .tmpl header).
+          sed "s|__PUBKEY__|${PUBKEY}|" \
+            test/ci/vm-user.toml.tmpl > ci-config.toml
+          echo "Rendered ci-config.toml:"
+          sed 's|ssh-ed25519 .*|ssh-ed25519 <redacted-pubkey>|' ci-config.toml
+
+      - name: Build a loginable qcow2 from the pushed image
+        run: |
+          set -euxo pipefail
+          REG="${IMAGE_REGISTRY@L}"
+          mkdir -p ./output
+          # Same bib invocation as build-image.yml's build-vm job (privileged,
+          # unconfined_t label, container storage mount, --rootfs btrfs) — but
+          # with the CI user config instead of bazzite/image.toml.
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v "$(pwd)/ci-config.toml":/config.toml:ro \
+            -v "$(pwd)/output":/output \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type qcow2 \
+            --rootfs btrfs \
+            --config /config.toml \
+            "${REG}/${IMAGE_NAME}:stable"
+          sudo chown -R "$(id -u):$(id -g)" ./output
+          QCOW="$(find ./output -name '*.qcow2' | head -1)"
+          [ -n "$QCOW" ] || { echo "FAIL: bib produced no qcow2"; find ./output -type f; exit 1; }
+          echo "QCOW=$QCOW" >> "$GITHUB_ENV"
+
+      - name: Install QEMU + UEFI firmware + ssh tooling
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf openssh-client netcat-openbsd
+
+      # /dev/kvm must be present — see the KVM POLICY note in this file's header.
+      # We FAIL LOUDLY if it is absent rather than report a green no-op. The runner
+      # user is not in the kvm group by default, so grant access first.
+      - name: Require KVM (fail loudly if unavailable)
+        id: kvm
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          if [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm 2>/dev/null \
+             && qemu-system-x86_64 -accel help 2>/dev/null | grep -q kvm; then
+            ls -l /dev/kvm
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error title=L1b cannot run::/dev/kvm is unavailable on this runner; the KVM boot smoke cannot prove the image boots. Failing loudly rather than reporting a green no-op (TCG is too slow to be a reliable fallback for a full desktop boot)."
+            exit 1
+          fi
+
+      # Boot AND wait for SSH in ONE step so the VM's lifetime is bounded and the
+      # QEMU monitor is never left on the step's stdio (an EOF/SIGPIPE there could
+      # kill QEMU before the assertions run). QEMU is fully detached: setsid, no
+      # controlling tty, monitor/display off, stdio redirected to a file, and its
+      # REAL pid recorded via -pidfile (not $! of the sudo wrapper) for teardown.
+      - name: Boot the qcow2 headless (UEFI/OVMF), wait for SSH, run assertions
+        run: |
+          set -euxo pipefail
+          # Ubuntu 24.04 renamed the firmware: the *_4M* files are the ones that
+          # exist (old OVMF_CODE.fd is gone). bootc images are UEFI-ONLY, so OVMF
+          # pflash is mandatory — a plain -drive with no firmware will not boot.
+          OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+          cp /usr/share/OVMF/OVMF_VARS_4M.fd ./OVMF_VARS.4m.fd # writable per-VM NVRAM
+          setsid sudo qemu-system-x86_64 \
+            -enable-kvm -machine q35 -cpu host -smp 2 -m 4096 \
+            -nographic -display none -monitor none \
+            -pidfile qemu.pid \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$OVMF_CODE" \
+            -drive if=pflash,format=raw,unit=1,file=./OVMF_VARS.4m.fd \
+            -drive file="$QCOW",format=qcow2,if=virtio \
+            -netdev user,id=n0,hostfwd=tcp::2222-:22 \
+            -device virtio-net-pci,netdev=n0 \
+            -serial file:serial.log \
+            </dev/null >>qemu-stdio.log 2>&1 &
+
+          SSH="ssh -p 2222 -i ci_key \
+            -o BatchMode=yes -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
+          # Poll — never sleep-once. Wait for the forwarded port, then for sshd.
+          deadline=$(( $(date +%s) + 300 )) # 5 min: ample for a KVM boot to sshd
+          until nc -z 127.0.0.1 2222; do
+            [ "$(date +%s)" -lt "$deadline" ] || {
+              echo "FAIL: forwarded ssh port never opened"; tail -n 100 serial.log 2>/dev/null || true; exit 1; }
+            sleep 3
+          done
+          until $SSH cismoke@127.0.0.1 true 2>/dev/null; do
+            [ "$(date +%s)" -lt "$deadline" ] || {
+              echo "FAIL: sshd never became ready"; tail -n 120 serial.log 2>/dev/null || true; exit 1; }
+            sleep 3
+          done
+          echo "SSH is up — running smoke assertions."
+          # Pipe the assertion script into the guest (nothing to copy first).
+          # Capture output so we can (a) surface it and (b) assert the completion
+          # SENTINEL — a bare exit 0 from an empty/truncated script must NOT pass.
+          set +e
+          out="$($SSH cismoke@127.0.0.1 'bash -s' < test/ci/smoke-assert.sh 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          [ "$rc" -eq 0 ] || { echo "FAIL: smoke assertions exited $rc"; exit 1; }
+          printf '%s\n' "$out" | grep -q 'L1b smoke: ALL PASS' \
+            || { echo "FAIL: L1b completion sentinel missing — assertions did not all run (empty/truncated smoke-assert.sh?)"; exit 1; }
+
+      - name: Shut the guest down cleanly + reap QEMU
+        if: always()
+        run: |
+          set -uo pipefail
+          SSH="ssh -p 2222 -i ci_key -o BatchMode=yes -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
+          # Graceful poweroff (cismoke has NOPASSWD sudo); || true is teardown-only.
+          $SSH cismoke@127.0.0.1 'sudo systemctl poweroff' 2>/dev/null || true
+          # Kill the REAL qemu via its pidfile, not $! of the sudo wrapper.
+          pid="$(cat qemu.pid 2>/dev/null || true)"
+          if [ -n "$pid" ]; then
+            for _ in $(seq 1 30); do sudo kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+            sudo kill -0 "$pid" 2>/dev/null && sudo kill -9 "$pid" 2>/dev/null || true
+          fi
+
+      - name: Upload serial console log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l1b-serial-log
+          path: |
+            serial.log
+            qemu-stdio.log
+          if-no-files-found: warn

@@ -1,0 +1,347 @@
+name: test-dualboot
+
+# ── L2 — dual-boot SAFETY ────────────────────────────────────────────────────
+# TIER: post-merge acceptance (docs/TEST-PLAN.md Tier 2, "Dual-boot safety [L2]").
+# CATCHES: an installer change that lets LaCOS MODIFY a neighbouring OS partition
+#   (the real-world nightmare: install LaCOS, Windows is gone). The proof is a
+#   before/after sha256 of a synthetic "Windows" data partition that must stay
+#   byte-identical, PLUS positive evidence LaCOS actually installed into the free
+#   space (an ostree deployment payload), so a no-op/failed install can't
+#   false-PASS the checksum.
+# TRIGGER: workflow_run(build-image succeeded on main) + manual dispatch +
+#   nightly. NOT on pull_request — it needs the PUSHED image and is 15-30 min.
+# NOTE: workflow_run + schedule only fire from this file on the DEFAULT branch
+#   (main); nothing runs until merged. Validate via dispatch first.
+#
+# ── THREE-LAYER HARNESS (strongest catch gates; cheap checks never flake) ─────
+# Layer A  static-safety   always, no VM, zero flake. Asserts the SHIPPED ISO
+#                          stays interactive (can't silently auto-wipe) and the
+#                          L2 test kickstart is provably free-space-only AND
+#                          unattended (text --non-interactive).
+# Layer B  anaconda proof  the real L2 byte-proof: rebuild the anaconda-iso from
+#                          the pushed image with a free-space-only kickstart, run
+#                          it UNATTENDED under KVM against the synthetic disk,
+#                          then byte-check the neighbour. This is the layer that
+#                          actually exercises Anaconda's PARTITIONER — the real
+#                          dual-boot hazard actor. Runs WHEN KVM is present.
+#                          A neighbour-changed verdict FAILS HARD (never retried);
+#                          only an install-did-not-run verdict is retried once.
+# Layer C  bootc fallback  the guaranteed-achievable floor when /dev/kvm is
+#                          absent: `bootc install to-filesystem` into a btrfs we
+#                          pre-create in the free space — same neighbour
+#                          byte-proof, and it now requires a POSITIVE ostree
+#                          payload so a no-op bootc cannot green it.
+#                          FIDELITY CAVEAT: to-filesystem sidesteps the
+#                          partitioner, so it proves "bootc's content install
+#                          never touches a neighbour", NOT "Anaconda's
+#                          partitioning won't wipe one". That is why it is the
+#                          DEGRADED path (loud ::warning), not a replacement for
+#                          Layer B. The real interactive-ISO safety still rests on
+#                          the human picking Blivet-GUI (docs/INSTALL-DUALBOOT.md)
+#                          + Tier 3/4.
+
+on:
+  workflow_run:
+    workflows: ["build-image"] # matches build-image.yml's `name:`
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 9 * * *" # nightly 09:00 UTC (offset from test-boot's 08:00)
+
+concurrency:
+  group: test-dualboot-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  IMAGE_NAME: lava-chicken-os
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  # ── Layer A — static safety gate (no VM, always runs, zero flake) ──────────
+  static-safety:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install pykickstart (ksvalidator)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pykickstart python3
+
+      - name: Shipped ISO must stay INTERACTIVE (empty-string kickstart)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import tomllib
+          d = tomllib.load(open("bazzite/image.toml", "rb"))
+          ks = d["customizations"]["installer"]["kickstart"]["contents"]
+          assert ks == "", f"shipped ISO must ship an EMPTY-STRING kickstart (interactive install, no silent whole-disk wipe); got {ks!r}"
+          print("OK: bazzite/image.toml still ships contents=\"\" (interactive install)")
+          PY
+
+      - name: L2 test kickstart must be provably free-space-only AND unattended
+        run: |
+          set -euo pipefail
+          KS=test/ci/dualboot.ks
+          echo "ksvalidator $KS"
+          ksvalidator "$KS"
+          # Unattended: without --non-interactive Anaconda stalls at the hub and
+          # the guest never installs -> Layer B hangs to timeout and false-fails.
+          grep -Eq '^[[:space:]]*text[[:space:]]+--non-interactive\b' "$KS" \
+            || { echo "FAIL: kickstart must use 'text --non-interactive' (else the unattended install hangs)"; exit 1; }
+          # Positive: must NOT wipe, must reuse the ESP, must pin the disk.
+          grep -Eq '^[[:space:]]*clearpart[[:space:]]+--none' "$KS" \
+            || { echo "FAIL: kickstart lacks 'clearpart --none'"; exit 1; }
+          grep -Eq '/boot/efi\b.*--noformat' "$KS" \
+            || { echo "FAIL: ESP is not reused with --noformat"; exit 1; }
+          grep -Eq '^[[:space:]]*ignoredisk[[:space:]]+--only-use=vda' "$KS" \
+            || { echo "FAIL: kickstart does not pin ignoredisk --only-use=vda"; exit 1; }
+          # Negative: any of these would let the installer reclaim the neighbour.
+          grep -Eiq 'clearpart[[:space:]]+.*--(all|linux|initlabel)' "$KS" \
+            && { echo "FAIL: DANGEROUS clearpart (--all/--linux/--initlabel) present"; exit 1; }
+          grep -Eiq '^[[:space:]]*autopart' "$KS" \
+            && { echo "FAIL: autopart present (would reclaim space)"; exit 1; }
+          grep -Eiq -- '--onpart=vda2' "$KS" \
+            && { echo "FAIL: kickstart targets the neighbour partition vda2!"; exit 1; }
+          echo "OK: L2 kickstart is unattended + free-space-only (clearpart --none, ESP --noformat, disk-pinned, no wipe)"
+
+  # ── Layers B/C — the neighbour byte-proof against the PUSHED image ──────────
+  byte-proof:
+    needs: static-safety
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60 # anaconda install is the long pole; hard-cap well under 6h
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main @ pinned
+        with:
+          tool-cache: true
+          docker-images: true
+          large-packages: true
+
+      - name: Pull the pushed image into container storage (bib/bootc read it locally)
+        run: |
+          set -euxo pipefail
+          # Log in AS ROOT (not docker/login-action) so the sudo podman that bib +
+          # `bootc install` read from can see the auth — matches build-image.yml.
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          sudo podman pull "${IMAGE_REGISTRY@L}/${IMAGE_NAME}:stable"
+
+      - name: Install disk-fabrication + QEMU + UEFI tooling
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gdisk dosfstools btrfs-progs util-linux \
+            qemu-system-x86 qemu-utils ovmf openssl python3
+          chmod +x test/ci/fabricate-neighbor-disk.sh test/ci/verify-neighbor-untouched.sh
+
+      # /dev/kvm decides which layer proves it: present -> Layer B (real
+      # partitioner, gating), absent -> Layer C (deterministic fallback, gating).
+      - name: Probe + enable KVM
+        id: kvm
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          if [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm 2>/dev/null \
+             && qemu-system-x86_64 -accel help 2>/dev/null | grep -q kvm; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+            echo "KVM available -> Layer B (Anaconda partitioner byte-proof)."
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=L2 degraded::/dev/kvm unavailable; running Layer C (bootc install-to-filesystem byte-proof) instead of the higher-fidelity Anaconda Layer B."
+          fi
+
+      # ── Layer B — the real byte-proof: Anaconda partitioner under KVM ────────
+      - name: Layer B — Anaconda unattended install, neighbour byte-proof
+        if: steps.kvm.outputs.have == 'true'
+        run: |
+          set -euxo pipefail
+          REG="${IMAGE_REGISTRY@L}"
+
+          # Wrap the free-space-only kickstart into a bib installer config. bib
+          # auto-prepends only `ostreecontainer`; the kickstart supplies the rest.
+          # NOTE: use a TOML LITERAL multiline string (''') — the kickstart's
+          # comments contain backslashes (\EFI\fedora), and a BASIC string (""")
+          # would try to interpret them as escapes and fail to parse. A literal
+          # string takes the content verbatim. (ksvalidator already ran in Layer A.)
+          python3 - <<'PY'
+          ks = open("test/ci/dualboot.ks").read()
+          assert "'''" not in ks, "kickstart contains ''' which breaks the TOML literal string"
+          with open("dualboot.toml", "w") as f:
+              f.write("[customizations.installer.kickstart]\n")
+              f.write("contents = '''\n")
+              f.write(ks)
+              f.write("'''\n")
+          print("wrote dualboot.toml")
+          PY
+
+          # Rebuild the anaconda-iso from the PUSHED image with the TEST kickstart
+          # (same bib flags as build-image.yml's build-iso job).
+          mkdir -p ./output
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v "$(pwd)/dualboot.toml":/config.toml:ro \
+            -v "$(pwd)/output":/output \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type anaconda-iso \
+            --rootfs btrfs \
+            --config /config.toml \
+            "${REG}/${IMAGE_NAME}:stable"
+          sudo chown -R "$(id -u):$(id -g)" ./output
+          ISO="$(find ./output -name '*.iso' | head -1)"
+          [ -n "$ISO" ] || { echo "FAIL: bib produced no anaconda-iso"; find ./output -type f; exit 1; }
+
+          OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+
+          # Up to two install ATTEMPTS, but retry is ONLY for an install that never
+          # ran (infra flake). A neighbour-changed verdict (verify exit 2) is a
+          # real safety regression and FAILS HARD immediately — never retried, so a
+          # flaky/intermittent neighbour corruption cannot be masked by a lucky
+          # second attempt.
+          attempt=0
+          while :; do
+            attempt=$((attempt + 1))
+            echo "===== Layer B install attempt ${attempt} ====="
+            # Fresh synthetic disk each attempt (fabricate writes the fingerprints).
+            sudo rm -f diskB.raw diskB.raw.*
+            test/ci/fabricate-neighbor-disk.sh diskB.raw
+            cp /usr/share/OVMF/OVMF_VARS_4M.fd varsB.fd
+
+            set +e
+            sudo timeout 40m qemu-system-x86_64 \
+              -enable-kvm -machine q35 -cpu host -m 6144 -smp 4 -no-reboot \
+              -drive if=pflash,format=raw,unit=0,readonly=on,file="$OVMF_CODE" \
+              -drive if=pflash,format=raw,unit=1,file=varsB.fd \
+              -drive file=diskB.raw,format=raw,if=virtio,cache=writeback \
+              -cdrom "$ISO" -boot d \
+              -nographic -display none -monitor none -serial file:anaconda.log
+            qrc=$?
+            set -e
+            echo "qemu exit=${qrc}; tail of anaconda.log:"; tail -n 40 anaconda.log || true
+
+            set +e
+            vout="$(sudo test/ci/verify-neighbor-untouched.sh diskB.raw anaconda 2>&1)"
+            vrc=$?
+            set -e
+            printf '%s\n' "$vout"
+
+            case "$vrc" in
+              0)
+                # Belt-and-suspenders: a rc=0 with no sentinel means the verify
+                # script was truncated/emptied — do not treat that as a pass.
+                printf '%s\n' "$vout" | grep -q 'L2 PASS' \
+                  || { echo "FAIL: verify exited 0 but the 'L2 PASS' sentinel is missing (truncated verify script?)"; exit 1; }
+                echo "Layer B PASSED on attempt ${attempt}"
+                break ;;
+              2)
+                echo "FAIL: SAFETY VIOLATION — the install MODIFIED the neighbour (bytes / GPT entry / Windows loader). NOT retrying; this is the exact regression L2 exists to catch."
+                exit 1 ;;
+              *)
+                # verify exit 3 (or any non-0/2): the install did not land. Treat
+                # as an infrastructure flake and retry once.
+                if [ "$attempt" -ge 2 ]; then
+                  echo "FAIL: Layer B install never completed after ${attempt} attempts (verify rc=${vrc}, qemu rc=${qrc})"
+                  exit 1
+                fi
+                echo "::warning::Layer B attempt ${attempt}: install did not complete (verify rc=${vrc}); retrying once." ;;
+            esac
+          done
+
+      # ── Layer C — deterministic fallback when KVM is absent ──────────────────
+      - name: Layer C — bootc install-to-filesystem, neighbour byte-proof
+        if: steps.kvm.outputs.have == 'false'
+        run: |
+          set -euxo pipefail
+          REG="${IMAGE_REGISTRY@L}"
+          IMG="${REG}/${IMAGE_NAME}:stable"
+
+          # Fabricate + fingerprint the neighbour (identical synthetic disk).
+          sudo rm -f diskC.raw diskC.raw.*
+          test/ci/fabricate-neighbor-disk.sh diskC.raw
+
+          # Add the root partition IN the free space while the disk is DETACHED,
+          # THEN attach and ASSERT the pN node exists. Editing the GPT on the
+          # backing file while a loop device is already attached is unreliable:
+          # partprobe often exits 0 without materialising the node, so the old
+          # code's `partprobe || reattach` guard never fired and the next mkfs hit
+          # a missing device. fabricate leaves diskC.raw detached, so edit it now.
+          sudo sgdisk -n 3:0:0 -t 3:8300 -c 3:"lacos-root" diskC.raw
+          LOOP="$(sudo losetup -Pf --show diskC.raw)"
+          sudo udevadm settle || true
+          if [ ! -e "${LOOP}p3" ]; then
+            sudo partprobe "$LOOP" || true
+            sudo udevadm settle || true
+          fi
+          [ -e "${LOOP}p3" ] || { echo "FAIL: ${LOOP}p3 node never appeared after partitioning"; sudo losetup -d "$LOOP" || true; exit 1; }
+
+          sudo mkfs.btrfs -f "${LOOP}p3"
+          sudo mkdir -p /mnt/lacos-root
+          sudo mount "${LOOP}p3" /mnt/lacos-root
+          # Mount the existing ESP under the target so bootupd can add \EFI\fedora
+          # NEXT TO the seeded \EFI\Microsoft (never reformatting it).
+          sudo mkdir -p /mnt/lacos-root/boot/efi
+          sudo mount "${LOOP}p1" /mnt/lacos-root/boot/efi
+
+          # bootc install to-filesystem writes ONLY within the mounted target +
+          # ESP; it never partitions or wipes. --pid=host + --privileged per docs.
+          sudo podman run --rm --privileged --pid=host \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v /mnt/lacos-root:/target \
+            "$IMG" \
+            bootc install to-filesystem --skip-fetch-check /target
+
+          sudo umount /mnt/lacos-root/boot/efi || true
+          sudo umount /mnt/lacos-root || true
+          sudo losetup -d "$LOOP" || true
+
+          # verify re-attaches the disk itself. In mode=bootc it does NOT trust the
+          # harness-created partition as proof — it mounts p3 and requires an
+          # ostree payload, so a no-op bootc cannot false-PASS. Capture the output
+          # and require the sentinel so an empty/truncated verify script can't pass.
+          set +e
+          vout="$(sudo test/ci/verify-neighbor-untouched.sh diskC.raw bootc 2>&1)"
+          vrc=$?
+          set -e
+          printf '%s\n' "$vout"
+          if [ "$vrc" -eq 2 ]; then
+            echo "FAIL: SAFETY VIOLATION — bootc install MODIFIED the neighbour. This is a real dual-boot regression."
+            exit 1
+          fi
+          if [ "$vrc" -ne 0 ]; then
+            echo "FAIL: Layer C byte-proof did not pass (verify rc=${vrc}) — no positive evidence bootc landed a deployment."
+            exit 1
+          fi
+          printf '%s\n' "$vout" | grep -q 'L2 PASS' \
+            || { echo "FAIL: verify exited 0 but the 'L2 PASS' sentinel is missing (truncated verify script?)"; exit 1; }
+          echo "Layer C PASSED (degraded fidelity — see the ::warning above)."
+
+      - name: Upload install logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-install-logs
+          path: |
+            anaconda.log
+            diskB.raw.neighbor.before
+            diskC.raw.neighbor.before
+          if-no-files-found: warn

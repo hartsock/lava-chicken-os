@@ -57,24 +57,65 @@ fi
 
 if [ "$OS" = Darwin ]; then
   info="$(diskutil info "$DISK")" || { echo "FAIL: no such disk $DISK"; exit 1; }
-  echo "$info" | grep -qE 'Internal: *No' \
-    || { echo "FAIL: $DISK looks INTERNAL — refusing. (diskutil info $DISK)"; exit 1; }
-  echo "$info" | grep -E 'Device Node|Media Name|Disk Size|Protocol|Internal|Removable'
+  # macOS versions disagree on which field they emit: older ones print
+  # "Internal: No", newer ones "Device Location: External" and only a
+  # "Removable Media:" line. Refuse anything positively internal, then REQUIRE
+  # positive external/removable evidence from whichever field is present
+  # (the old check keyed on "Internal: No" alone and fail-closed on sticks
+  # whose diskutil output omits that line).
+  if echo "$info" | grep -qE 'Device Location: +Internal|Internal: +Yes'; then
+    echo "FAIL: $DISK is an INTERNAL disk — refusing. (diskutil info $DISK)"; exit 1
+  fi
+  echo "$info" | grep -qE 'Device Location: +External|Internal: +No|Removable Media: +(Removable|Yes)' \
+    || { echo "FAIL: can't confirm $DISK is external/removable — refusing. (diskutil info $DISK)"; exit 1; }
   DEV="/dev/r$DISK"          # raw device: dramatically faster dd on macOS
   PLAINDEV="/dev/$DISK"
+  # Pull identity fields for the human-readable summary below (macOS labels).
+  get() { printf '%s\n' "$info" | grep -m1 "$1" | sed 's/^[^:]*: *//'; }
+  D_NAME="$(get 'Device / Media Name')"
+  D_SIZE="$(get 'Disk Size' | sed 's/ (.*//')"
+  D_PROTO="$(get 'Protocol')"
+  D_LOC="$(get 'Device Location')"
+  D_REM="$(get 'Removable Media')"
+  D_LAYOUT="$(get 'Content (IOContent)')"
+  D_PARTS="$(diskutil list "$DISK" 2>/dev/null | sed '1,2d')"   # partitions/labels
 else
   DEV="/dev/$DISK"; PLAINDEV="$DEV"
   [ -b "$DEV" ] || { echo "FAIL: $DEV is not a block device"; exit 1; }
   [ "$(cat "/sys/block/$DISK/removable" 2>/dev/null)" = 1 ] \
     || { echo "FAIL: /sys/block/$DISK/removable != 1 — refusing non-removable disk"; exit 1; }
-  lsblk "$DEV"
+  D_NAME="$(lsblk -dno MODEL "$DEV" 2>/dev/null | xargs)"
+  D_SIZE="$(lsblk -dno SIZE "$DEV" 2>/dev/null | xargs)"
+  D_PROTO="$(lsblk -dno TRAN "$DEV" 2>/dev/null | xargs)"
+  D_LOC="External"; D_REM="Removable"
+  D_LAYOUT="$(lsblk -dno PTTYPE "$DEV" 2>/dev/null | xargs)"
+  D_PARTS="$(lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$DEV" 2>/dev/null)"
 fi
 
-echo
-echo "!!! EVERYTHING ON $PLAINDEV WILL BE DESTROYED !!!"
-printf 'Type the disk name (%s) to confirm: ' "$DISK"
+bus="$D_PROTO"; [ -n "$D_LOC" ] && bus="${bus:+$bus · }$D_LOC"; [ -n "$D_REM" ] && bus="${bus:+$bus · }$D_REM"
+cat <<SUMMARY
+
+  ==================================================================
+   TARGET DISK — writing will COMPLETELY ERASE everything on it
+  ==================================================================
+   Disk      $DISK   ($PLAINDEV)
+   Name      ${D_NAME:-(unknown)}
+   Size      ${D_SIZE:-(unknown)}
+   Bus       ${bus:-(unknown)}
+   Layout    ${D_LAYOUT:-(none)}
+   Writing   $(basename "$ISO")
+
+   Currently on this disk (all of it will be gone):
+$(printf '%s\n' "$D_PARTS" | sed 's/^/     /')
+
+   >> Make sure this is your USB STICK — not an external hard drive
+      or a backup. There is no undo.
+  ==================================================================
+SUMMARY
+printf '\nIf %s is the RIGHT disk, type its name to erase it and write the image.\n' "$DISK"
+printf 'Anything else cancels. Confirm disk name: '
 read -r ans
-[ "$ans" = "$DISK" ] || { echo "aborted (typed '$ans')"; exit 1; }
+[ "$ans" = "$DISK" ] || { echo "Cancelled — you typed '$ans'. Nothing was written."; exit 1; }
 
 # ── 3. Write ──────────────────────────────────────────────────────────────────
 if [ "$OS" = Darwin ]; then

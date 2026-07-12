@@ -1,6 +1,6 @@
 # Lava Chicken OS — Roadmap
 
-**`v0.0.1` → `v0.1.0`**  ·  created 2026-07-11  ·  milestone
+**`v0.0.1` → `v0.1.0`**  ·  created 2026-07-11 · updated 2026-07-12  ·  milestone
 [`v0.1.0`](https://github.com/hartsock/lava-chicken-os/milestone/1)
 
 We iterate `v0.0.1 … v0.0.99` (one reviewable PR per roadmap item); **`v0.1.0`**
@@ -36,37 +36,44 @@ This roadmap *sequences* the design docs; it does not replace them.
 
 | Item | Issue | Exit |
 |---|---|---|
-| Provision admin (from GitHub keys) + optional kid users | [#1](https://github.com/hartsock/lava-chicken-os/issues/1) | admin + any `LAVA_KID_USERS`; kids non-`wheel`, not in `nugget-tui`; per-user `nugget` icon for all |
-| First-boot auto-pull of LLM models (progress) | [#2](https://github.com/hartsock/lava-chicken-os/issues/2) | `ollama list` shows the models after first boot; newt starts with no download |
+| ✅ Provision admin (from GitHub keys) + optional kid users | [#1](https://github.com/hartsock/lava-chicken-os/issues/1) | admin + any `LAVA_KID_USERS`; kids non-`wheel`, not in `nugget-tui`; per-user `nugget` icon for all |
+| ✅ First-boot auto-pull of LLM models (progress) | [#2](https://github.com/hartsock/lava-chicken-os/issues/2) | `ollama list` shows the models after first boot; newt starts with no download |
 
-## Phase 2 — Homelab integration (2nd-boot, authenticated)
+Also closed here: ✅ the 2nd-boot **setup wizard**
+([#15](https://github.com/hartsock/lava-chicken-os/issues/15), `lacos setup`) —
+it holds every site particular so the image stays generic.
+
+## Phase 2 — Site integration (2nd-boot, via the wizard)
 
 | Item | Issue | Exit |
 |---|---|---|
-| Join Tailscale as `hostname=nugget` | [#3](https://github.com/hartsock/lava-chicken-os/issues/3) | box on the tailnet, remote-manageable |
-| Split-DNS for a home domain (wizard step) | [#4](https://github.com/hartsock/lava-chicken-os/issues/4) | `*.<domain>` resolves on-box; MagicDNS unbroken |
-| Wizard prints the DNS line to add on your DNS server | [#5](https://github.com/hartsock/lava-chicken-os/issues/5) | `<box>.<domain>` resolves LAN-wide |
+| Join Tailscale (wizard step) | [#3](https://github.com/hartsock/lava-chicken-os/issues/3) | box on the tailnet, remote-manageable |
+| Split-DNS + the print-a-DNS-line step | — (folded into [#15](https://github.com/hartsock/lava-chicken-os/issues/15), shipped) | `*.<domain>` resolves on-box; `<box>.<domain>` LAN-wide after the operator adds the printed line |
+
+*(Two former tracking issues here carried site-specific detail and were removed;
+the generic capability shipped inside the wizard. #3 remains to VERIFY the
+Tailscale step on hardware.)*
 
 ## Phase 3 — Creative app stack
 
 | Item | Issue | Exit |
 |---|---|---|
-| Art stack (Krita/GIMP/Inkscape) + Adobe→Windows doc | [#6](https://github.com/hartsock/lava-chicken-os/issues/6) | art apps installed all-users |
-| OBS + VAAPI hardware encode | [#7](https://github.com/hartsock/lava-chicken-os/issues/7) | hardware-encoded record/stream to YouTube |
-| Kdenlive/Shotcut default editor + Resolve caveat | [#8](https://github.com/hartsock/lava-chicken-os/issues/8) | kids export H.264 for YouTube |
+| ✅ Art stack (Krita/GIMP/Inkscape) + Adobe→Windows doc | [#6](https://github.com/hartsock/lava-chicken-os/issues/6) | art apps installed all-users |
+| ✅ OBS + VAAPI hardware encode | [#7](https://github.com/hartsock/lava-chicken-os/issues/7) | hardware-encoded record/stream to YouTube |
+| ✅ Kdenlive/Shotcut default editor + Resolve caveat | [#8](https://github.com/hartsock/lava-chicken-os/issues/8) | kids export H.264 for YouTube |
 
 ## Phase 4 — CI testing
 
 | Item | Issue | Exit |
 |---|---|---|
-| L1 image boot smoke test (KVM) | [#9](https://github.com/hartsock/lava-chicken-os/issues/9) | every push boots the image + asserts the nugget layer |
-| L2 dual-boot safety test | [#10](https://github.com/hartsock/lava-chicken-os/issues/10) | nightly proof the installer never touches the neighbor OS |
+| ✅ L1 image boot smoke test (KVM) | [#9](https://github.com/hartsock/lava-chicken-os/issues/9) | `test-boot.yml`: post-merge + nightly, boots the pushed image under KVM/UEFI + asserts the nugget layer in-guest |
+| ✅ L2 dual-boot safety test | [#10](https://github.com/hartsock/lava-chicken-os/issues/10) | `test-dualboot.yml`: nightly byte-proof (sha256 of the fake-Windows partition unchanged; install provably landed) |
 
 ## Phase 5 — Hardware validation
 
 | Item | Issue | Exit |
 |---|---|---|
-| Green the image + ISO/qcow2 build (pin versions) | [#11](https://github.com/hartsock/lava-chicken-os/issues/11) | `# VERIFY` pins resolved; CI green |
+| ✅ Green the image + ISO/qcow2 build (pin versions) | [#11](https://github.com/hartsock/lava-chicken-os/issues/11) | `# VERIFY` pins resolved; CI green |
 | On-hardware VERIFY sweep (Bazzite) | [#12](https://github.com/hartsock/lava-chicken-os/issues/12) | Tier-4 Bazzite checklist green |
 | SteamOS parity pass | [#13](https://github.com/hartsock/lava-chicken-os/issues/13) | same end-state via `bootstrap.sh` |
 

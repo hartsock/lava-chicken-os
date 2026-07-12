@@ -119,13 +119,25 @@ FOUND_OSTREE=0
 for p in "${LOOP}"p3 "${LOOP}"p4 "${LOOP}"p5; do
   [ -e "$p" ] || continue
   sudo blkid "$p" 2>/dev/null | grep -q 'TYPE="btrfs"' || continue
-  if sudo mount "$p" "$mnt2" 2>/dev/null; then
-    # `bootc install` / an ostree deployment both materialise an /ostree tree at
-    # the btrfs root (repo + deploy). Its presence is proof the install wrote a
-    # real payload, not that the harness merely made a partition.
-    if sudo test -d "$mnt2/ostree"; then
-      echo "PASS: ostree deployment payload present on $p (LaCOS actually landed)"
+  # Mount the btrfs TOP LEVEL (subvolid=5), not the default subvolume: Anaconda
+  # deploys into a SUBVOLUME (root/ostree/...), so a plain top-level `test -d
+  # /ostree` misses a successful install (runs 2/4 may have false-failed here).
+  if sudo mount -o subvolid=5 "$p" "$mnt2" 2>/dev/null; then
+    echo "[verify] $p top-level tree (subvolid=5, depth 2):"
+    sudo find "$mnt2" -maxdepth 2 -print 2>/dev/null | head -30
+    OSTREE_DIR="$(sudo find "$mnt2" -maxdepth 3 -type d -name ostree 2>/dev/null | head -1)"
+    if [ -n "$OSTREE_DIR" ]; then
+      echo "PASS: ostree deployment payload present on $p at ${OSTREE_DIR#"$mnt2"/} (LaCOS actually landed)"
       FOUND_OSTREE=1
+    fi
+    # Post-mortem: if anaconda copied its logs to the target, harvest them for
+    # the workflow's artifact (var/log/anaconda may live inside a subvolume).
+    ALOG="$(sudo find "$mnt2" -maxdepth 5 -type d -path '*var/log/anaconda' 2>/dev/null | head -1)"
+    if [ -n "$ALOG" ]; then
+      mkdir -p ./anaconda-target-logs
+      sudo cp -r "$ALOG"/. ./anaconda-target-logs/ 2>/dev/null || true
+      sudo chown -R "$(id -u):$(id -g)" ./anaconda-target-logs 2>/dev/null || true
+      echo "[verify] harvested target-side anaconda logs -> ./anaconda-target-logs"
     fi
     sudo umount "$mnt2" 2>/dev/null || true
   fi

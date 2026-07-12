@@ -72,11 +72,17 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Install pykickstart (ksvalidator)
+      # pykickstart is a Fedora tool with NO Ubuntu apt package (first L2 run:
+      # "E: Unable to locate package pykickstart"). Install the same upstream
+      # project from PyPI via pipx (preinstalled on GitHub runners, puts
+      # ksvalidator on PATH). Syntax-level gate only — the authoritative parse
+      # is Anaconda itself in Layer B.
+      - name: Install ksvalidator (pykickstart via pipx)
         run: |
           set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pykickstart python3
+          pipx install pykickstart \
+            || sudo pip3 install --break-system-packages pykickstart
+          ksvalidator --help >/dev/null   # NOT --version: -v means ks-version
 
       - name: Shipped ISO must stay INTERACTIVE (empty-string kickstart)
         run: |
@@ -106,6 +112,10 @@ jobs:
             || { echo "FAIL: ESP is not reused with --noformat"; exit 1; }
           grep -Eq '^[[:space:]]*ignoredisk[[:space:]]+--only-use=vda' "$KS" \
             || { echo "FAIL: kickstart does not pin ignoredisk --only-use=vda"; exit 1; }
+          # NOTE: no ostreecontainer assertion HERE — bib supplies the payload via
+          # the embedded %include osbuild-base.ks chain (proved in run
+          # 29176715582); the byte-proof job's ISO probe asserts it across ALL
+          # embedded *.ks files, where it actually lives.
           # Negative: any of these would let the installer reclaim the neighbour.
           grep -Eiq 'clearpart[[:space:]]+.*--(all|linux|initlabel)' "$KS" \
             && { echo "FAIL: DANGEROUS clearpart (--all/--linux/--initlabel) present"; exit 1; }
@@ -148,7 +158,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gdisk dosfstools btrfs-progs util-linux \
-            qemu-system-x86 qemu-utils ovmf openssl python3
+            qemu-system-x86 qemu-utils ovmf openssl python3 socat
           chmod +x test/ci/fabricate-neighbor-disk.sh test/ci/verify-neighbor-untouched.sh
 
       # /dev/kvm decides which layer proves it: present -> Layer B (real
@@ -211,6 +221,41 @@ jobs:
           ISO="$(find ./output -name '*.iso' | head -1)"
           [ -n "$ISO" ] || { echo "FAIL: bib produced no anaconda-iso"; find ./output -type f; exit 1; }
 
+          # ── Pre-boot probe: what kickstart did bib ACTUALLY embed? ────────────
+          # First real run installed our storage layout but landed NO payload
+          # (no ostree deployment, no ESP loader). bib's README says a custom
+          # kickstart gets the `ostreecontainer` line added automatically — this
+          # probe verifies that contract against the ISO we just built, BEFORE
+          # burning a 40-min VM boot, and dumps the embedded kickstart for the
+          # log/artifact so a payload failure is diagnosable.
+          sudo mkdir -p /mnt/l2iso
+          sudo mount -o loop,ro "$ISO" /mnt/l2iso
+          echo "--- installer kernel args (grub.cfg) ---"
+          sudo grep -rhE 'linux|inst\.' /mnt/l2iso/EFI/BOOT/grub.cfg /mnt/l2iso/boot/grub2/grub.cfg 2>/dev/null | head -20 || true
+          # The kickstart is a CHAIN: /osbuild.ks starts with
+          # `%include /run/install/repo/osbuild-base.ks`, and the payload
+          # (ostreecontainer) lives in the BASE file — dump every *.ks and
+          # assert across the concatenation (run 3 falsely flagged a missing
+          # payload by grepping only the first file).
+          : > embedded-kickstart.ks
+          KSCOUNT=0
+          while IFS= read -r f; do
+            KSCOUNT=$((KSCOUNT+1))
+            { echo "##### $f #####"; sudo cat "$f"; echo; } >> embedded-kickstart.ks
+          done < <(sudo find /mnt/l2iso -maxdepth 2 -name '*.ks' | sort)
+          [ "$KSCOUNT" -gt 0 ] || { echo "FAIL: no embedded .ks found in the bib ISO"; sudo find /mnt/l2iso -maxdepth 2 | head -40; sudo umount /mnt/l2iso; exit 1; }
+          echo "--- embedded kickstart chain ($KSCOUNT files) ---"
+          cat embedded-kickstart.ks
+          echo "--- container payload present on ISO? ---"
+          sudo ls -la /mnt/l2iso/container 2>/dev/null | head -5 \
+            || echo "WARN: no /container dir at ISO root (payload URL may differ)"
+          sudo umount /mnt/l2iso
+          grep -q '^ostreecontainer' embedded-kickstart.ks \
+            || { echo "FAIL: no ostreecontainer payload line anywhere in the embedded kickstart chain — the install can partition but never deploy."; exit 1; }
+          grep -q 'clearpart --none' embedded-kickstart.ks \
+            || { echo "FAIL: our free-space-only kickstart content is missing from the embedded kickstart chain"; exit 1; }
+          echo "OK: embedded kickstart chain has BOTH the ostreecontainer payload and our clearpart --none storage"
+
           OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
 
           # Up to two install ATTEMPTS, but retry is ONLY for an install that never
@@ -234,10 +279,15 @@ jobs:
               -drive if=pflash,format=raw,unit=1,file=varsB.fd \
               -drive file=diskB.raw,format=raw,if=virtio,cache=writeback \
               -cdrom "$ISO" -boot d \
+              -device virtio-serial-pci \
+              -chardev file,id=alog,path=anaconda-virtio.log \
+              -device virtserialport,chardev=alog,name=org.fedoraproject.anaconda.log.0 \
               -nographic -display none -monitor none -serial file:anaconda.log
             qrc=$?
             set -e
             echo "qemu exit=${qrc}; tail of anaconda.log:"; tail -n 40 anaconda.log || true
+            echo "--- anaconda virtio log (last 120 lines) ---"
+            tail -n 120 anaconda-virtio.log 2>/dev/null || echo "(no virtio log captured)"
 
             set +e
             vout="$(sudo test/ci/verify-neighbor-untouched.sh diskB.raw anaconda 2>&1)"
@@ -342,6 +392,9 @@ jobs:
           name: l2-install-logs
           path: |
             anaconda.log
+            anaconda-virtio.log
+            anaconda-target-logs/
+            embedded-kickstart.ks
             diskB.raw.neighbor.before
             diskC.raw.neighbor.before
           if-no-files-found: warn

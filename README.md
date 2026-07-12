@@ -42,6 +42,22 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 - **Bootc image** — Bazzite builds in GitHub Actions → GHCR with an install ISO;
   SteamOS gets the same setup via `bootstrap.sh`
 
+## ⚠️ Read this before touching a USB stick
+
+This project **erases disks, replaces operating systems, and asks you to change
+firmware settings**. Done carefully it's reversible at nearly every step — done
+carelessly, **use of this software may turn your computer into a paperweight.**
+Per the [MIT license](LICENSE) it ships with **NO WARRANTY** of any kind.
+
+What we do about it: the installer path is tested nightly with byte-level
+checksums against a synthetic Windows disk, every image boots in CI before it
+ships, `bootc rollback` undoes an OS switch, and the firmware boot menu always
+survives. What *you* do about it: **back up anything you love first**, read the
+prompts before typing yes, and never point a disk-writing command at a drive
+you haven't triple-checked. If something goes wrong,
+[tell us](https://github.com/hartsock/lava-chicken-os/issues) — but the risk is
+yours.
+
 ## Status — honest, per feature (v0.0.x)
 
 This project versions `v0.0.1 → v0.0.99` until a fresh install delivers every

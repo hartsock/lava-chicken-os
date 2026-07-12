@@ -8,6 +8,13 @@ kids, and you can check on the machine from your own laptop.
 
 It's free and open source. Expect **about an hour**, most of it waiting.
 
+> ⚠️ **Before anything else:** this process erases USB sticks, changes firmware
+> settings, and installs an operating system. Done carefully it's reversible at
+> almost every step, and we test the dangerous parts nightly — but done
+> carelessly, **it may turn a computer into a paperweight**, and it comes with
+> **no warranty**. Back up anything you love on that PC first. When a prompt
+> asks you to confirm a disk, that's the moment to slow down.
+
 ---
 
 ## First, pick your path

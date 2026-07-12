@@ -143,6 +143,22 @@ curl -fsS --max-time 5 http://127.0.0.1:11434/api/version >/dev/null \
   && echo "PASS: ollama baked, active, answering on loopback" \
   || { echo "FAIL: ollama not answering on 127.0.0.1:11434"; exit 1; }
 
+# ── the resident agent must be ALIVE after boot (real-hardware regression:
+#    a boot-order race left nugget-agent-tmux inactive while everything else
+#    was green — firstboot completing is not enough) ─────────────────────────
+ag_ok=0
+for i in $(seq 1 18); do
+  systemctl is-active nugget-agent-tmux.service >/dev/null 2>&1 && { ag_ok=1; break; }
+  sleep 5
+done
+if [ "$ag_ok" != 1 ]; then
+  echo "FAIL: nugget-agent-tmux not active after boot (boot-order race?)"
+  sudo systemctl status nugget-agent-tmux.service --no-pager | head -12 || true
+  sudo journalctl -u nugget-agent-tmux.service --no-pager | tail -25 || true
+  exit 1
+fi
+echo "PASS: resident agent alive after boot"
+
 echo "L1b smoke: ALL PASS"
 
 # ── OUT OF SCOPE for this tier (first-boot / networked — do NOT assert here) ──

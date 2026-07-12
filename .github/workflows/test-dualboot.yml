@@ -112,6 +112,11 @@ jobs:
             || { echo "FAIL: ESP is not reused with --noformat"; exit 1; }
           grep -Eq '^[[:space:]]*ignoredisk[[:space:]]+--only-use=vda' "$KS" \
             || { echo "FAIL: kickstart does not pin ignoredisk --only-use=vda"; exit 1; }
+          # Payload must be present: this bib version does NOT auto-add it to a
+          # custom kickstart (probe run 29176272244) — without it Anaconda
+          # partitions, deploys nothing, and 'succeeds'.
+          grep -Eq '^[[:space:]]*ostreecontainer[[:space:]]' "$KS" \
+            || { echo "FAIL: kickstart lacks the ostreecontainer payload line (install would deploy nothing)"; exit 1; }
           # Negative: any of these would let the installer reclaim the neighbour.
           grep -Eiq 'clearpart[[:space:]]+.*--(all|linux|initlabel)' "$KS" \
             && { echo "FAIL: DANGEROUS clearpart (--all/--linux/--initlabel) present"; exit 1; }

@@ -7,13 +7,16 @@
 # "clearpart --none" and never touches the neighbour partition — i.e. it validates
 # the Anaconda+kickstart partitioning MECHANISM against a synthetic disk.
 #
-# bib's README says a custom kickstart gets ONLY the `ostreecontainer` payload
-# line added automatically; every other command below must be supplied by us or
-# Anaconda halts waiting for interaction. The FIRST real run partitioned per
-# this file but deployed NO payload, so test-dualboot.yml now PROBES the built
-# ISO's embedded kickstart (dump + assert `ostreecontainer` present) before
-# booting, instead of trusting that contract. Layer A (ksvalidator + grep)
-# checks the safety invariants before we ever boot.
+# PAYLOAD (resolved empirically): bib's README claims a custom kickstart gets
+# the `ostreecontainer` line added automatically — the probe in
+# test-dualboot.yml dumped the built ISO's osbuild.ks and proved it does NOT
+# for the bib version we pull (run 29176272244): the embedded ks was exactly
+# this file, payload-less, so Anaconda partitioned then "finished" without
+# installing anything. So WE carry the payload line below, copied verbatim from
+# bib's own manifest output. If a future bib starts auto-adding it there would
+# be two ostreecontainer lines — the workflow's embedded-kickstart dump will
+# show that immediately. Layer A (ksvalidator + grep) checks the safety
+# invariants before we ever boot.
 
 # `--non-interactive` is REQUIRED for an unattended install: plain `text` still
 # stops at the interactive hub ("Begin Installation") and waits for a human, so
@@ -36,6 +39,12 @@ logging --host=10.0.2.2
 # locked root is fine for a throwaway L2 VM we only ever inspect offline.
 rootpw --lock
 firstboot --disable
+
+# ── PAYLOAD: deploy the container image embedded on the install ISO ──────────
+# Copied verbatim from bib's manifest output (see header). Without this line
+# Anaconda has no payload: it applies storage, deploys nothing, and powers off
+# "successfully" — the exact failure of L2 runs 1-2.
+ostreecontainer --url=/run/install/repo/container --transport=oci
 
 # ── THE WHOLE POINT: never wipe anything ─────────────────────────────────────
 # clearpart --none = do not remove ANY existing partition. The neighbour

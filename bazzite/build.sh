@@ -11,6 +11,8 @@ mkdir -p "$PAY"
 echo "${LAVA_GITHUB_USER:-hartsock}" > "$PAY/github-user"
 # Box + agent name (default nugget; e.g. arcade). Sets hostname + agent identity.
 echo "${LAVA_BOX_NAME:-nugget}" > "$PAY/box-name"
+# Variant marker (stable|deck) — provisioning branches on this (see #23).
+echo "${LAVA_VARIANT:-stable}" > "$PAY/variant"
 # VERSION is synced into $PAY by CI; also surface it for `bootc`/support.
 [ -r "$PAY/VERSION" ] && install -D -m0644 "$PAY/VERSION" /etc/lava-chicken/version || true
 

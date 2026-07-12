@@ -30,7 +30,13 @@ done
 
 # Autologin into a default session; KDE fast-user-switching changes users.
 # VERIFY the session name for this Bazzite variant (plasma vs plasmawayland).
-if [ -n "$AUTOLOGIN" ] && getent passwd "$AUTOLOGIN" >/dev/null; then
+# DECK VARIANT (#23): bazzite-deck owns session autologin (boots the gamescope
+# Game Mode session itself) — writing Session=plasma here would defeat the
+# whole point of the deck image, so skip the SDDM drop-in entirely.
+VARIANT="$(cat "$HERE/../variant" 2>/dev/null || echo stable)"
+if [ "$VARIANT" = deck ]; then
+  plog "deck variant: leaving session autologin to bazzite-deck (no SDDM override)"
+elif [ -n "$AUTOLOGIN" ] && getent passwd "$AUTOLOGIN" >/dev/null; then
   install -d -m0755 /etc/sddm.conf.d
   cat > /etc/sddm.conf.d/10-lava-chicken-autologin.conf <<EOF
 # LaCOS: boot straight into a default session; fast-user-switch (KDE) to change.

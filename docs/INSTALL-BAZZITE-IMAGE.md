@@ -52,6 +52,26 @@ agent's tmux session. Detach with `Ctrl-b d` — nugget keeps running. Off-switc
 Moonlight: point it at `<box-ip>` (or `<box>.<your-home-domain>`), pair once with
 the PIN shown in Sunshine's web UI at `https://<box-ip>:47990`.
 
+## Variants: desktop vs Game Mode (SteamOS UX)
+
+Two published tags, one OS ([#23](https://github.com/hartsock/lava-chicken-os/issues/23)):
+
+| Tag | Boots into | For |
+|---|---|---|
+| `:stable` | KDE desktop (SDDM autologin) | desktop-first: editing, art, homework |
+| `:deck` | **Game Mode** (Steam's own gamescope session — the SteamOS/Deck UX) | console-first: power on, pick a game |
+
+Switch a box between them anytime (reversible):
+
+```bash
+sudo bootc switch ghcr.io/<you>/lava-chicken-os:deck   # or :stable to go back
+systemctl reboot
+```
+
+Both variants carry the full LaCOS layer (nugget, skills, boot sound, apps).
+On `:deck`, the desktop is still there — switch to it from Game Mode's power
+menu ("Switch to Desktop").
+
 ## Updates
 
 The image is bootc — updates arrive automatically via `bootc upgrade`

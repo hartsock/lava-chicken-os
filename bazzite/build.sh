@@ -33,10 +33,16 @@ rm -f /etc/yum.repos.d/terra*.repo || true
 # are ours (loopback-only, models in /var/lib/ollama). Weekly rebuilds track
 # the latest release, same policy as newt.
 if [ ! -x /usr/bin/ollama ]; then
-  echo "[lava-chicken build] baking ollama (official linux-amd64 tarball)"
-  curl -fsSL --retry 3 https://ollama.com/download/ollama-linux-amd64.tgz \
-    | tar -xz -C /usr
-  test -x /usr/bin/ollama || { echo "FATAL: ollama bake failed"; exit 1; }
+  echo "[lava-chicken build] baking ollama (official linux-amd64, zstd tarball)"
+  # Official release layout is bin/ollama + lib/ollama/ -> extracts straight into
+  # REAL /usr. Artifact is .tar.zst (NOT .tgz — ollama switched formats; the old
+  # ollama.com/download/*.tgz URL 404s). Stable 'latest' URL, weekly rebuilds
+  # track releases (same policy as newt). Needs zstd (Fedora/Bazzite ships it).
+  command -v zstd >/dev/null 2>&1 || rpm-ostree install --idempotent zstd 2>/dev/null || dnf install -y zstd 2>/dev/null || true
+  curl -fsSL --retry 3 \
+    https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst \
+    | tar --zstd -x -C /usr
+  test -x /usr/bin/ollama || { echo "FATAL: ollama bake failed (url/format?)"; exit 1; }
 fi
 install -D -m0644 "$PAY/systemd/ollama.service"  /usr/lib/systemd/system/ollama.service
 install -D -m0644 "$PAY/sysusers/ollama.conf"    /usr/lib/sysusers.d/ollama.conf

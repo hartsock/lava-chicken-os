@@ -20,6 +20,8 @@ usage() {
 LaCOS $(ver) — Lava Chicken OS  🐔🌋
 usage: lacos <command>
   status        services + resident agent + version
+  mode          show boot mode; 'sudo lacos mode console|desktop' switches it
+                (console = Game Mode like a Steam Deck; desktop = normal desktop)
   attach        attach the resident nugget agent session (the "nugget" button)
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
   setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
@@ -39,6 +41,40 @@ case "${1:-help}" in
     done
     if [ -S /run/nugget/tmux.sock ]; then echo "  nugget session               LIVE"
     else echo "  nugget session               absent"; fi
+    v="$(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?')"
+    case "$v" in deck) echo "  boot mode                    console (Game Mode)";;
+                 stable) echo "  boot mode                    desktop";; esac
+    ;;
+  mode)
+    # Parent-friendly wrapper around `bootc switch` (#23): pick what the box
+    # boots into, by name, without knowing registries or tags.
+    shift
+    cur="$(cat /usr/share/lava-chicken/variant 2>/dev/null || echo unknown)"
+    case "$cur" in deck) curname="console (Game Mode)";; stable) curname=desktop;; *) curname="$cur";; esac
+    if [ $# -eq 0 ]; then
+      echo "Current mode: $curname"
+      echo "Switch with:  sudo lacos mode console    (boots straight into Game Mode, like a Steam Deck)"
+      echo "         or:  sudo lacos mode desktop    (boots to the normal desktop)"
+      exit 0
+    fi
+    case "$1" in
+      console|deck|game|gamemode) want=deck;  wantname="console (Game Mode)";;
+      desktop|stable)             want=stable; wantname="desktop";;
+      *) echo "unknown mode '$1' — use: console or desktop" >&2; exit 2;;
+    esac
+    command -v bootc >/dev/null 2>&1       || { echo "mode switching needs the bootc-based (Bazzite) image; this box doesn't have bootc." >&2; exit 1; }
+    if [ "$want" = "$cur" ]; then echo "Already in $wantname mode — nothing to do."; exit 0; fi
+    [ "$(id -u)" = 0 ] || { echo "This needs admin rights — run:  sudo lacos mode $1"; exit 1; }
+    # Derive the image from what's booted so forks keep working; swap only the tag.
+    img="$(bootc status --format json 2>/dev/null       | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["status"]["booted"]["image"]["image"]["image"])' 2>/dev/null || true)"
+    [ -n "$img" ] || { echo "could not read the booted image from bootc status" >&2; exit 1; }
+    img="${img%%@*}"; base="${img%:*}"
+    echo "Switching to $wantname mode  ->  ${base}:${want}"
+    bootc switch "${base}:${want}"
+    echo
+    echo "Done. The new mode takes effect on the next restart:"
+    echo "  systemctl reboot        (or just use the power menu)"
+    echo "Changed your mind? 'sudo lacos mode ${curname%% *}' switches back the same way."
     ;;
   attach)
     if a="$(find_bin attach-nugget)"; then exec "$a"

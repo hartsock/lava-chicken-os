@@ -25,6 +25,14 @@ Then pick the **vibe** — you can switch anytime later, so don't agonize:
 - **Desktop** (`:stable`) — power on → a normal desktop (KDE), with Steam and
   everything else a click away. Better if the box is homework-first.
 
+Once LaCOS is on the box, switching is one friendly command — no tags or
+registries to remember:
+
+```bash
+sudo lacos mode console    # Game-Mode boot, like a Steam Deck
+sudo lacos mode desktop    # normal desktop boot
+```
+
 ## What you need
 
 - [ ] **The kids' PC** — with an **AMD graphics card** (most important thing),
@@ -133,12 +141,14 @@ power-on) and:
 1. Boot the LaCOS installer stick the same way.
 2. Follow the guided installer: pick the disk (**it will be erased**), create
    your parent account, install, reboot, pull the stick.
-3. Skip to Step 5 — Path B bakes LaCOS in already.
+3. LaCOS is already baked in — skip to Step 5. Want the game-console vibe?
+   After first boot: `sudo lacos mode console` and restart.
 
 ## Step 4 — Turn Bazzite into LaCOS (Path A only)
 
-Log into the fresh Bazzite desktop, open a terminal (Konsole), and pick the
-vibe:
+Log into the fresh Bazzite desktop, open a terminal (Konsole — it's in the
+menu), and paste **one** of these (this is the only "raw" command in the whole
+guide — plain Bazzite doesn't have our friendly tools yet):
 
 ```bash
 sudo bootc switch ghcr.io/hartsock/lava-chicken-os:deck    # game console
@@ -147,8 +157,9 @@ sudo bootc switch ghcr.io/hartsock/lava-chicken-os:stable  # desktop-first
 systemctl reboot
 ```
 
-Changed your mind later? Run it again with the other tag. Want plain Bazzite
-back? `sudo bootc rollback`. It's that kind of reversible.
+From here on the box speaks parent: changed your mind about the vibe? It's
+just `sudo lacos mode desktop` (or `console`). Want plain Bazzite back
+entirely? `sudo bootc rollback`. It's that kind of reversible.
 
 ## Step 5 — First boot (the magic happens)
 
@@ -161,7 +172,7 @@ models (~5 GB — the one long wait).
 
 ```bash
 ssh <your-username>@<the-box's-IP>     # your GitHub key just works, no password
-lacos status                           # everything green?
+lacos status                           # everything green? (also shows the boot mode)
 lacos models                           # model download progress
 ```
 

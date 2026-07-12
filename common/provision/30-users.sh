@@ -21,8 +21,12 @@ for kid in $KIDS; do
     plog "created kid user: $kid"
   fi
   # Passwordless local login (click-to-switch). sshd is key-only + password-auth
-  # off, so this is not a remote-login hole.
+  # off, so this is not a remote-login hole. An empty password ALONE is not
+  # enough on Fedora/SDDM: PAM only waives the prompt for members of
+  # `nopasswdlogin` (real-hardware finding — kids were prompted anyway).
   passwd -d "$kid" >/dev/null 2>&1 || true
+  groupadd -rf nopasswdlogin 2>/dev/null || true
+  gpasswd -a "$kid" nopasswdlogin >/dev/null 2>&1 || true
   # Belt-and-suspenders: kids are NEVER admins.
   gpasswd -d "$kid" wheel >/dev/null 2>&1 || true
   [ -z "$AUTOLOGIN" ] && AUTOLOGIN="$kid"   # default autologin target = first kid

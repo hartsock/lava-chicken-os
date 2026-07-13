@@ -137,6 +137,21 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
   fi
 done < <(getent passwd)
 
+# 8b. firewall not blanket-open — a kid opening "all the ports" so a VR headset
+# connects is a real security regression (ALVR needs only 9943-9944). WARN + point
+# at the VR command, which knows the minimal rule; don't auto-fix here (that's
+# `lacos vr`'s job, and a broad range could be deliberate on a power user's box).
+if systemctl is-active firewalld >/dev/null 2>&1; then
+  blanket="$({ firewall-cmd --list-ports; firewall-cmd --permanent --list-ports; } 2>/dev/null \
+    | tr ' ' '\n' | grep -E '^[0-9]+-[0-9]+/(tcp|udp)$' \
+    | awk -F'[-/]' '($2-$1)>=1000{print}' | sort -u | tr '\n' ' ')"
+  if [ -n "${blanket// /}" ]; then
+    note "WARN firewall has a wide-open port range ($blanket) — likely a VR 'open everything' hack; tighten:  sudo lacos vr doctor --fix"
+  else
+    note "PASS firewall has no wide-open port ranges"
+  fi
+fi
+
 # 9. context lines (never fail)
 note "INFO boot mode: $(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?') · disk free: $(df -h /var 2>/dev/null | awk 'NR==2{print $4}')"
 

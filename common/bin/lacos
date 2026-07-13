@@ -26,6 +26,8 @@ usage: lacos <command>
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
   setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
   doctor        check the box end-to-end; 'sudo lacos doctor --fix' repairs
+  vr            wireless VR (ALVR): 'lacos vr doctor' checks it,
+                'sudo lacos vr setup' opens the ports the headset needs
   upgrade       fetch the latest OS: 'sudo lacos upgrade' stages it (reboot later),
                 --now stages + reboots, --check just looks
   models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
@@ -111,6 +113,11 @@ case "${1:-help}" in
     shift
     if d="$(find_bin lacos-doctor)"; then exec "$d" "$@"
     else echo "lacos-doctor not found" >&2; exit 1; fi
+    ;;
+  vr)
+    shift
+    if v="$(find_bin lacos-vr)"; then exec "$v" "$@"
+    else echo "lacos-vr not found" >&2; exit 1; fi
     ;;
   upgrade|update)
     # Parent-friendly wrapper around `bootc upgrade` — fetch the newest LaCOS

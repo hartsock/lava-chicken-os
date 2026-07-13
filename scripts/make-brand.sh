@@ -25,18 +25,24 @@ install -d "$OUT"
 # stem -> width, matching newt-tui: ansi-full=80, ansi-120=126, ansi-160=166.
 # We frame the art with a blank band underneath so the splash lays the wordmark
 # + tagline into it (title-card look); newt falls back to side layout otherwise.
-emit() {  # $1 stem  $2 width  $3 color|mono
+emit() {  # $1 stem  $2 width  $3 color|mono|braille
   local stem="$1" w="$2" mode="$3"
   local f="$OUT/$PREFIX-$stem.txt"
   # force truecolor: chafa drops color when stdout isn't a TTY, but newt needs
   # 24-bit escapes (its blank-row detector greps for `8;2;`).
   local -a args=(--format symbols --colors full --size "${w}x" -t 0.5 --symbols block+space)
-  [ "$mode" = mono ] && args=(--format symbols --colors none --size "${w}x" -t 0.5 --symbols ascii)
-  { printf '\n'; chafa "${args[@]}" "$PNG"; printf '\n\n\n\n'; } > "$f"
-  printf '  %-16s %3d cols  %2d rows\n' "$PREFIX-$stem.txt" "$w" "$(wc -l <"$f")"
+  [ "$mode" = mono ]    && args=(--format symbols --colors none --size "${w}x" -t 0.5 --symbols ascii)
+  [ "$mode" = braille ] && args=(--format symbols --colors none --size "${w}x" -t 0.5 --symbols braille)
+  if [ "$mode" = braille ]; then
+    chafa "${args[@]}" "$PNG" > "$f"                      # standalone logo, no wordmark band
+  else
+    { printf '\n'; chafa "${args[@]}" "$PNG"; printf '\n\n\n\n'; } > "$f"
+  fi
+  printf '  %-18s %3d cols  %2d rows\n' "$PREFIX-$stem.txt" "$w" "$(wc -l <"$f")"
 }
 
 echo "brand '$PREFIX'  <-  $PNG  ->  $OUT/"
+# The newt splash/header stems (colored ANSI + a plain ASCII), consumed by newt.
 emit ansi-10    10 color
 emit ansi-20    20 color
 emit ansi-40    40 color
@@ -44,4 +50,11 @@ emit ansi-full  80 color
 emit ansi-120  126 color
 emit ansi-160  166 color
 emit ascii-40   40 mono
-echo "done — preview in a color terminal:  cat $OUT/$PREFIX-ansi-40.txt"
+# Braille (mono Unicode, no ANSI): ~4x detail per cell, legible when tiny, and
+# plain text that embeds cleanly in MOTDs, logs, READMEs — friendly to text
+# crawlers / screen scrapers. NOT consumed by newt today (it asks for the ansi/
+# ascii stems) — a standalone LaCOS brand asset; candidate for a newt braille slot.
+emit braille-40 40 braille
+emit braille-24 24 braille
+emit braille-16 16 braille
+echo "done — preview in a color terminal:  cat $OUT/$PREFIX-ansi-40.txt   (braille: any terminal)"

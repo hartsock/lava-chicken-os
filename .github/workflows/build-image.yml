@@ -124,6 +124,9 @@ jobs:
             for s in ansi-10 ansi-20 ansi-40 ansi-full ansi-120 ansi-160 ascii-40; do
               need_f "$NB/nugget-$s.txt"
             done
+            for s in braille-40 braille-24 braille-16; do   # plain-text logos (MOTD/logs/crawlers)
+              need_f "$NB/nugget-$s.txt"
+            done
             for s in ansi-20 ansi-40; do   # rendered in the inline header + splash
               grep -q "8;2;" "$NB/nugget-$s.txt" \
                 || { echo "brand art $s lost truecolor (regen: make-brand.sh, --colors full)"; fail=1; }

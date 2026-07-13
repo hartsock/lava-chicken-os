@@ -17,10 +17,32 @@ OS="$(os_id)"
 # --- nugget-tui = ADMINS ONLY -----------------------------------------------
 # Only wheel (admin) users may attach the resident nugget tmux. Kids are NOT
 # enrolled — the per-user icon (below) is their access. Revisit once OCAP ships.
-getent group "$NUGGET_TUI_GROUP" >/dev/null || groupadd -g "$NUGGET_TUI_GID" "$NUGGET_TUI_GROUP"
+#
+# Kids must NEVER land here even if something (e.g. the KDE Users panel, whose
+# "Administrator" toggle silently adds users to wheel) wrongly put a kid in
+# wheel after 30-users removed them (#53). So: enroll wheel members EXCEPT known
+# kids, actively self-heal any kid already in nugget-tui, and shout if a kid is
+# in wheel at all — that's an admin-privilege leak the operator needs to fix.
+KIDS=" ${LAVA_KID_USERS:-} "                       # space-padded for word-match
+is_kid() { case "$KIDS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+ensure_group "$NUGGET_TUI_GROUP" "$NUGGET_TUI_GID"
 for name in $(getent group wheel | cut -d: -f4 | tr ',' ' '); do
   [ -n "$name" ] && [ "$name" != nugget ] || continue
+  if is_kid "$name"; then
+    # A kid in wheel = admin leak (not created by us). Refuse to compound it
+    # with resident-agent access, undo any prior enrollment, and flag it loudly.
+    gpasswd -d "$name" "$NUGGET_TUI_GROUP" >/dev/null 2>&1 || true
+    plog "SECURITY: kid '$name' is in wheel (admin) — NOT enrolling in nugget-tui;" \
+         "remove from wheel: 'sudo gpasswd -d $name wheel' (KDE Users 'Administrator'?)"
+    continue
+  fi
   gpasswd -a "$name" "$NUGGET_TUI_GROUP" >/dev/null && plog "nugget-tui += $name (admin)"
+done
+# Belt-and-suspenders: purge any kid from nugget-tui regardless of wheel state.
+for kid in ${LAVA_KID_USERS:-}; do
+  getent group "$NUGGET_TUI_GROUP" | cut -d: -f4 | tr ',' '\n' | grep -qx "$kid" \
+    && gpasswd -d "$kid" "$NUGGET_TUI_GROUP" >/dev/null 2>&1 \
+    && plog "nugget-tui -= $kid (kids never attach the resident agent)"
 done
 
 install_unit() {  # $1 = unit filename ; rewrites /usr/share -> /var on SteamOS
@@ -65,6 +87,11 @@ install -d -m0755 "$STATE/persona"
 sed "s/@AGENT_NAME@/$DISP/g" "$HERE/../persona/nugget-persona.md" > "$STATE/persona/nugget.md"
 chmod 0644 "$STATE/persona/nugget.md"
 install -D -m0644 "$STATE/persona/nugget.md" /etc/skel/.newt/personas/nugget.md
+# Pre-seed newt's config (points at the local ollama CHAT model qwen2.5-coder:7b)
+# so first-run skips its auto-probe, which wrongly activates the embedding model
+# on a fresh box (Gilamonster-Foundation/newt-agent#1116).
+[ -r "$HERE/../newt/config.toml" ] \
+  && install -D -m0644 "$HERE/../newt/config.toml" /etc/skel/.newt/config.toml
 # Bundled newt SKILLS ride the same rails (#19): whole skill dirs copied to
 # ~/.newt/skills/<name>/ (newt's per-user discovery path; sibling files ship
 # too, per the skill format). Their frontmatter caveats (net: {only: []})
@@ -83,6 +110,15 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
   [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -d "$uhome" ] || continue
   install -d -m0755 -o "$uname" "$uhome/.newt/personas"
   install -m0644 -o "$uname" "$STATE/persona/nugget.md" "$uhome/.newt/personas/nugget.md"
+  # Seed newt's config (chat model qwen2.5-coder:7b) so first-run skips its
+  # auto-probe / wrong-model auto-select (newt-agent#1116). Only if the user has
+  # none — never clobber their real config.
+  [ -r "$HERE/../newt/config.toml" ] && [ ! -e "$uhome/.newt/config.toml" ] \
+    && install -m0644 -o "$uname" "$HERE/../newt/config.toml" "$uhome/.newt/config.toml"
+  # `install -d -o` chowns only the leaf, leaving the ~/.newt PARENT root-owned
+  # (#55 class) — which is what made newt first-run fail with EACCES writing its
+  # config on real hardware. Re-own ~/.newt itself (tiny; safe to -R).
+  chown -R "$uname" "$uhome/.newt" 2>/dev/null || true
   for sk in "$SKILLS_SRC"/*/; do
     [ -f "$sk/SKILL.md" ] || continue
     skn="$(basename "$sk")"
@@ -96,13 +132,32 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
     install -m0644 -o "$uname" "$HERE/../autostart/lava-chicken-wallpaper.desktop" \
       "$uhome/.config/autostart/lava-chicken-wallpaper.desktop"
   fi
-  # Game-Mode startup movie (#31): per-user Steam uioverrides — used when the
-  # box runs in console mode; harmless on desktop.
+  # Game-Mode startup movie (#31): Steam reads it from ~/.steam/root/config/
+  # uioverrides/movies — but ~/.steam/{steam,root} are meant to be SYMLINKS into
+  # ~/.local/share/Steam. The old `install -d -o $u ~/.steam/root/...` was doubly
+  # broken (real-hardware #55, broke every not-yet-launched kid): `install -d`
+  # chowns ONLY the named leaf, so ~/.steam was left ROOT-owned — after which the
+  # user's own Steam can't create its ~/.steam/steam symlink and never opens —
+  # and it materialised ~/.steam/root as a real dir shadowing Steam's symlink.
+  # Seed the SAME shape Steam itself makes, entirely user-owned: movie in the
+  # real config dir + both symlinks (only if absent — never clobber a live install).
   if [ -r "$HERE/../brand/boot-movie.webm" ]; then
-    install -d -o "$uname" "$uhome/.steam/root/config/uioverrides/movies" 2>/dev/null \
-      && install -m0644 -o "$uname" "$HERE/../brand/boot-movie.webm" \
-           "$uhome/.steam/root/config/uioverrides/movies/lava-chicken.webm" 2>/dev/null \
-      || true
+    sdir="$uhome/.local/share/Steam"
+    if install -d "$sdir/config/uioverrides/movies" 2>/dev/null \
+       && install -m0644 "$HERE/../brand/boot-movie.webm" \
+            "$sdir/config/uioverrides/movies/lava-chicken.webm" 2>/dev/null; then
+      install -d "$uhome/.steam" 2>/dev/null
+      for l in steam root; do
+        [ -e "$uhome/.steam/$l" ] || [ -L "$uhome/.steam/$l" ] || ln -s "$sdir" "$uhome/.steam/$l"
+      done
+      # install -d does NOT chown the parents it creates; fix ownership ourselves
+      # (chown -h for the symlinks). NEVER chown all of ~/.local/share/Steam — a
+      # real install's game data lives there; only our small config subtree.
+      chown -R  "$uname" "$sdir/config"  2>/dev/null || true
+      chown -Rh "$uname" "$uhome/.steam" 2>/dev/null || true
+      chown     "$uname" "$sdir" "$uhome/.local/share" "$uhome/.local" 2>/dev/null || true
+      plog "boot movie + steam skeleton -> $uname"
+    fi
   fi
 done < <(getent passwd)
 

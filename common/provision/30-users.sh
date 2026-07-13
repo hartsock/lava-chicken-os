@@ -27,6 +27,18 @@ for kid in $KIDS; do
   passwd -d "$kid" >/dev/null 2>&1 || true
   groupadd -rf nopasswdlogin 2>/dev/null || true
   gpasswd -a "$kid" nopasswdlogin >/dev/null 2>&1 || true
+  # A passwordless kid must NOT get a screen locker: KDE's lock screen demands a
+  # password to UNLOCK, which a nopasswdlogin account cannot supply — the kid
+  # ends up trapped behind a lock they can't clear (real-hardware finding: a kid
+  # session auto-locked over a dialog and could never get back in). Disable idle
+  # auto-lock + lock-on-resume for each kid, owned by the kid so KDE honors it.
+  khome="$(getent passwd "$kid" | cut -d: -f6)"
+  if [ -n "$khome" ] && [ -d "$khome" ]; then
+    mkdir -p "$khome/.config"
+    printf '[Daemon]\nAutolock=false\nLockOnResume=false\nTimeout=0\n' \
+      > "$khome/.config/kscreenlockerrc"
+    chown "$kid" "$khome/.config" "$khome/.config/kscreenlockerrc" 2>/dev/null || true
+  fi
   # Belt-and-suspenders: kids are NEVER admins.
   gpasswd -d "$kid" wheel >/dev/null 2>&1 || true
   [ -z "$AUTOLOGIN" ] && AUTOLOGIN="$kid"   # default autologin target = first kid

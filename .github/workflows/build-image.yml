@@ -123,6 +123,17 @@ jobs:
             # bundled newt skills (#19) must ship in the payload
             need_f /usr/share/lava-chicken/newt-skills/youtube-prep/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/video-edit/SKILL.md
+            # seeded newt config must ship and point at the CHAT model, never the
+            # embedding model (newt-agent#1116).
+            need_f /usr/share/lava-chicken/newt/config.toml
+            # check config VALUES only (comment lines name nomic-embed to explain
+            # the bug and must not trip this). No single quotes: this whole block
+            # is already inside bash -c "..." single quotes.
+            newtcfg=$(grep -vE "^[[:space:]]*#" /usr/share/lava-chicken/newt/config.toml)
+            printf "%s" "$newtcfg" | grep -q "qwen2.5-coder:7b" \
+              || { echo "seeded newt config missing chat model qwen2.5-coder:7b"; fail=1; }
+            printf "%s" "$newtcfg" | grep -q "nomic-embed" \
+              && { echo "seeded newt config activates the embedding model (#1116)"; fail=1; } || true
             # ollama must be BAKED (#28) — v0.0.1 shipped none and the agent was DOA
             need_x /usr/bin/ollama
             need_f /usr/lib/systemd/system/ollama.service
@@ -143,6 +154,12 @@ jobs:
             grep -qE "^encoder[[:space:]]*=" /usr/share/lava-chicken/sunshine/sunshine.conf \
               || { echo "shipped sunshine.conf missing an encoder default"; fail=1; }
             need_x /usr/share/lava-chicken/bin/lacos-pull-models
+            # doctor REQUIRED model set (what --fix pulls) must equal the puller
+            # default, or doctor demands a model the puller never fetches — a --fix
+            # loop that never clears. Same default string must live in both files.
+            grep -q "qwen2.5-coder:7b nomic-embed-text" /usr/share/lava-chicken/bin/lacos-pull-models \
+              && grep -q "qwen2.5-coder:7b nomic-embed-text" /usr/share/lava-chicken/bin/lacos-doctor \
+              || { echo "doctor required-models default drifted from lacos-pull-models"; fail=1; }
             # original brand media that must ship in the image
             need_f /usr/share/lava-chicken/brand/boot-sound.wav
             need_f /usr/share/lava-chicken/brand/wallpaper.png
@@ -166,6 +183,68 @@ jobs:
             v=$(cat /usr/share/lava-chicken/variant 2>/dev/null || echo missing)
             [ "$v" = "${{ matrix.variant }}" ] || { echo "variant marker $v != expected ${{ matrix.variant }}"; fail=1; }
             [ "$fail" = 0 ] && echo "nugget layer OK" || { echo "SMOKE FAILED"; exit 1; }
+          '
+
+      # #53: on hardware day both kids landed in `wheel` (the KDE Users panel
+      # re-added them after 30-users removed them), and 45 then cascaded that
+      # into nugget-tui (resident-agent access). Prove, in a throwaway root
+      # container, that the REAL enrollment logic refuses to promote a kid — and
+      # that `lacos doctor` DETECTS a kid wrongly left in wheel. (--fix isn't run
+      # here: its other remedies are networked/firstboot; the kid-revoke remedy
+      # itself is a trivial two-line `gpasswd -d`, exercised on real hardware.)
+      - name: Guard — kid privileges (#53) + user-owned ~/.steam (#55)
+        run: |
+          set -euo pipefail
+          sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:build" -euo pipefail -c '
+            fail=0
+            install -d /var/home   # image populates it at boot; useradd -m needs it to exist now
+            useradd -M -s /usr/sbin/nologin adminci
+            useradd -M -s /usr/sbin/nologin kidci
+            useradd -m -d /var/home/steamci -s /usr/sbin/nologin steamci   # real home: the movie/steam/newt blocks run for it (#55/#1116)
+            gpasswd -a adminci wheel >/dev/null
+            gpasswd -a kidci   wheel >/dev/null   # the exact #53 misconfig: a kid in wheel
+            # Run the REAL enrollment (top of 45). It must exclude+self-heal the kid
+            # while still enrolling the genuine admin. Timeout-bound: 45 later touches
+            # systemctl, which no-ops fast in a container; the enrollment runs first.
+            timeout 120 env LAVA_KID_USERS=kidci \
+              bash /usr/share/lava-chicken/provision/45-nugget-tmux.sh >/tmp/45.log 2>&1 || true
+            member() { getent group "$2" | cut -d: -f4 | tr "," "\n" | grep -qx "$1"; }
+            member kidci   nugget-tui && { echo "BUG: kid enrolled in nugget-tui (guard broken)"; fail=1; }
+            member adminci nugget-tui || { echo "BUG: admin NOT enrolled (guard too broad)"; fail=1; }
+            # lacos doctor (no --fix, no remedies) must FLAG the kid still in wheel.
+            install -d /etc/lava-chicken
+            echo "LAVA_KID_USERS=kidci" > /etc/lava-chicken/site.conf
+            # doctor exits non-zero whenever it reports any FAIL (always, in this
+            # bare container) — that is expected; we only care about its OUTPUT, so
+            # never let its exit status trip `set -e`.
+            /usr/share/lava-chicken/bin/lacos-doctor >/tmp/doctor.log 2>&1 || true
+            grep -Eq "FAIL kid .kidci. is in wheel" /tmp/doctor.log \
+              || { echo "BUG: doctor did not flag kid-in-wheel"; fail=1; }
+            # #55: 45 must leave a provisioned user OWNING ~/.steam, with root a
+            # SYMLINK (not a root-owned real dir that blocks Steam from starting).
+            SH="$(getent passwd steamci | cut -d: -f6)"
+            [ "$(stat -c %U "$SH/.steam" 2>/dev/null)" = steamci ] \
+              || { echo "BUG(#55): $SH/.steam not owned by steamci (install -d parent-chown regression)"; fail=1; }
+            [ -L "$SH/.steam/root" ] \
+              || { echo "BUG(#55): $SH/.steam/root is not a symlink (shadows Steam)"; fail=1; }
+            # #1116: 45 must seed ~/.newt/config.toml at the CHAT model, and leave
+            # ~/.newt user-owned (the parent-chown bug that broke newt first-run).
+            [ "$(stat -c %U "$SH/.newt" 2>/dev/null)" = steamci ] \
+              || { echo "BUG: $SH/.newt not owned by steamci (install -d parent-chown)"; fail=1; }
+            grep -q "qwen2.5-coder:7b" "$SH/.newt/config.toml" 2>/dev/null \
+              || { echo "BUG(#1116): steamci ~/.newt/config.toml not seeded with the chat model"; fail=1; }
+            # doctor must DETECT a root-owned ~/.steam — fabricate the old-bug state.
+            chown root "$SH/.steam" 2>/dev/null || true
+            /usr/share/lava-chicken/bin/lacos-doctor >/tmp/doctor2.log 2>&1 || true
+            grep -Eq "steamci.* is owned by .root." /tmp/doctor2.log \
+              || { echo "BUG: doctor did not flag root-owned ~/.steam"; fail=1; }
+            if [ "$fail" = 0 ]; then echo "kid-privilege + ~/.steam guard OK"; else
+              echo "===== 45 log ====="; cat /tmp/45.log
+              echo "===== doctor log ====="; cat /tmp/doctor.log
+              echo "===== doctor2 (steam) log ====="; cat /tmp/doctor2.log 2>/dev/null
+              echo "===== steam state ====="; ls -la "$SH/.steam" 2>/dev/null; stat -c "%U %n" "$SH/.steam" 2>/dev/null
+              echo "===== groups ====="; getent group wheel nugget-tui
+              echo "GUARD FAILED"; exit 1; fi
           '
 
       - name: Log in to GHCR

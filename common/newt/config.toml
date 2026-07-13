@@ -1,0 +1,26 @@
+# LaCOS-seeded newt config. Points newt at the local ollama CHAT model LaCOS pulls
+# (qwen2.5-coder:7b) so newt skips its first-run auto-probe — which on a fresh box
+# wrongly activates the EMBEDDING model (nomic-embed-text), never a chat model:
+# Gilamonster-Foundation/newt-agent#1116. Structure mirrors newt v0.7.3's own output.
+# If you change LaCOS's model set (`lacos models`), update the two `model =` lines.
+providers = []
+default_tier_order = ["FAST", "STANDARD", "COMPLEX", "REVIEW"]
+
+[[backends]]
+name = "ollama"
+endpoint = "http://127.0.0.1:11434"
+model = "qwen2.5-coder:7b"
+tiers = ["FAST", "STANDARD", "COMPLEX", "REVIEW"]
+kind = "ollama"
+api = "chat_completions"
+
+[dgx]
+active_endpoint = "ollama"
+active_model = "qwen2.5-coder:7b"
+
+[[dgx.nodes]]
+name = "default"
+ollama = "http://127.0.0.1:11434"
+
+[agents]
+enabled = true

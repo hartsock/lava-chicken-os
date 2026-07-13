@@ -31,6 +31,13 @@ from the answers. Run it when you're ready; nothing here is baked or automatic.
 
 Unknown/`no` answers are recorded so a re-run doesn't re-ask what you've settled.
 
+> **Kid accounts must stay standard — never "Administrator."** Set kids up here
+> (or leave them to first boot), *not* through KDE System Settings → Users: that
+> panel's **Administrator** toggle silently drops the account into `wheel` (sudo),
+> which also cascades into resident-agent access ([#53](https://github.com/hartsock/lava-chicken-os/issues/53)).
+> Passwordless kid login comes from the `nopasswdlogin` group, **not** from admin.
+> `lacos doctor` flags any kid found in `wheel`/`nugget-tui`; `sudo lacos doctor --fix` revokes it.
+
 ## Delivery
 
 - **Command:** `lacos setup` (whiptail/dialog TUI; plain-`read` fallback headless).

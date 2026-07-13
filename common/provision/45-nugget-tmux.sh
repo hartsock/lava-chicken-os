@@ -177,4 +177,26 @@ else
   done < <(getent passwd)
 fi
 
-plog "resident nugget = admin-only remote; per-user 'nugget' icon installed for all."
+# A "nugget" launcher on every user's DESKTOP, not just the app menu — the
+# original ask was an icon on all desktops, and the entries above only reach the
+# menu (hardware-day finding: users looked on the desktop and saw nothing).
+# Executable + KDE metadata so Plasma treats it as a trusted launcher (no
+# "untrusted .desktop" nag). /etc/skel copy covers future accounts.
+desktop_src="/usr/share/applications/nugget-agent.desktop"           # Bazzite: baked
+place_desktop_icon() {  # $1 = target .desktop path ; $2 = owner (or empty)
+  local dst="$1" owner="${2:-}"
+  install -D ${owner:+-o "$owner" -g "$owner"} -m0755 "$src" "$dst" || return 0
+  # KDE Plasma 6 trusts .desktop launchers marked with this key.
+  grep -q '^X-KDE-AuthorizeAction' "$dst" 2>/dev/null ||     printf 'X-KDE-AuthorizeAction=shell_access\n' >> "$dst" 2>/dev/null || true
+}
+src="$desktop_src"; [ -f "$src" ] && install -D -m0755 "$src" /etc/skel/Desktop/nugget-agent.desktop
+while IFS=: read -r uname _ uid _ _ uhome _; do
+  [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -d "$uhome" ] || continue
+  src="$desktop_src"
+  [ -f "$src" ] || src="$uhome/.local/share/applications/nugget-agent.desktop"   # SteamOS: rendered above
+  [ -r "$src" ] || continue
+  install -d -m0755 -o "$uname" "$uhome/Desktop"
+  install -m0755 -o "$uname" "$src" "$uhome/Desktop/nugget-agent.desktop"
+done < <(getent passwd)
+
+plog "resident nugget = admin-only remote; per-user 'nugget' icon (menu + desktop) installed for all."

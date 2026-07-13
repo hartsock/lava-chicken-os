@@ -90,6 +90,9 @@ install -D -m0644 "$PAY/desktop/lacos-setup.desktop"     /usr/share/applications
 install -D -m0644 "$PAY/profile.d/lava-chicken.sh"       /etc/profile.d/lava-chicken.sh
 # Default wallpaper: bake to a standard KDE location + a first-login autostart
 # that applies it once (so it's the default for every user, incl. the kids).
+# Nugget launcher icon (#40): install the mascot avatar into the icon theme so
+# the desktop entry's Icon=nugget resolves to the real face, not a stock smiley.
+[ -r "$PAY/brand/nugget-avatar.png" ] && install -D -m0644 "$PAY/brand/nugget-avatar.png" /usr/share/icons/hicolor/256x256/apps/nugget.png
 [ -r "$PAY/brand/wallpaper.png" ] && install -D -m0644 "$PAY/brand/wallpaper.png" /usr/share/wallpapers/lava-chicken/wallpaper.png
 install -D -m0644 "$PAY/autostart/lava-chicken-wallpaper.desktop" /etc/skel/.config/autostart/lava-chicken-wallpaper.desktop
 

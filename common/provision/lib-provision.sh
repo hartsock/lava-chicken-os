@@ -11,6 +11,16 @@ pwarn() { printf '\033[1;31m[lava-chicken:provision]\033[0m %s\n' "$*" >&2; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Create group $1, preferring GID $2 but falling back to ANY free GID if that
+# GID is already taken. The exact GID is not load-bearing — every consumer looks
+# the group up by NAME — and base images vary in what occupies a given GID (on
+# bazzite GID 971 is already used, which is why `groupadd -g 971` aborts a
+# provision script under `set -e` when the group doesn't yet exist). Idempotent.
+ensure_group() {  # $1=name  $2=preferred-gid
+  getent group "$1" >/dev/null && return 0
+  groupadd -g "$2" "$1" 2>/dev/null || groupadd "$1"
+}
+
 # The GitHub username whose public keys seed SSH access.
 # Baked into the image (build.sh) or overridable via env for the SteamOS path.
 github_user() {

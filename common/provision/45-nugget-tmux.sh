@@ -25,7 +25,7 @@ OS="$(os_id)"
 # in wheel at all — that's an admin-privilege leak the operator needs to fix.
 KIDS=" ${LAVA_KID_USERS:-} "                       # space-padded for word-match
 is_kid() { case "$KIDS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
-getent group "$NUGGET_TUI_GROUP" >/dev/null || groupadd -g "$NUGGET_TUI_GID" "$NUGGET_TUI_GROUP"
+ensure_group "$NUGGET_TUI_GROUP" "$NUGGET_TUI_GID"
 for name in $(getent group wheel | cut -d: -f4 | tr ',' ' '); do
   [ -n "$name" ] && [ "$name" != nugget ] || continue
   if is_kid "$name"; then

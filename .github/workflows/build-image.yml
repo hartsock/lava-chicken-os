@@ -195,11 +195,14 @@ jobs:
             # lacos doctor (no --fix, no remedies) must FLAG the kid still in wheel.
             install -d /etc/lava-chicken
             echo "LAVA_KID_USERS=kidci" > /etc/lava-chicken/site.conf
-            /usr/share/lava-chicken/bin/lacos-doctor 2>/dev/null \
-              | grep -Eq "FAIL kid .kidci. is in wheel" \
+            /usr/share/lava-chicken/bin/lacos-doctor >/tmp/doctor.log 2>&1
+            grep -Eq "FAIL kid .kidci. is in wheel" /tmp/doctor.log \
               || { echo "BUG: doctor did not flag kid-in-wheel"; fail=1; }
             if [ "$fail" = 0 ]; then echo "kid-privilege guard OK"; else
-              echo "===== 45 log ====="; cat /tmp/45.log; echo "GUARD FAILED"; exit 1; fi
+              echo "===== 45 log ====="; cat /tmp/45.log
+              echo "===== doctor log ====="; cat /tmp/doctor.log
+              echo "===== groups ====="; getent group wheel nugget-tui
+              echo "GUARD FAILED"; exit 1; fi
           '
 
       - name: Log in to GHCR

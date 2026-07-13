@@ -13,8 +13,8 @@ OS="$(os_id)"
 
 # --- identity ---------------------------------------------------------------
 if [ "$OS" = steamos ]; then
-  getent group nugget            >/dev/null || groupadd -g "$NUGGET_GID" nugget
-  getent group "$NUGGET_TUI_GROUP" >/dev/null || groupadd -g "$NUGGET_TUI_GID" "$NUGGET_TUI_GROUP"
+  ensure_group nugget "$NUGGET_GID"
+  ensure_group "$NUGGET_TUI_GROUP" "$NUGGET_TUI_GID"
   getent passwd nugget           >/dev/null || useradd -u "$NUGGET_UID" -g nugget \
     -d "$NUGGET_HOME" -m -s /bin/bash -c "Lava Chicken Nugget agent" nugget
   # Persist account + authz files across SteamOS atomic updates.

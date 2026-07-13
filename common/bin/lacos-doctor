@@ -67,7 +67,7 @@ fi
 # 4. newt + per-user agent kit (persona / skills for the invoking human)
 [ -x "$STATE/bin/newt" ] && note "PASS newt installed (shared)" \
   || { note "FAIL newt missing"; remedy "provision 50-nugget-agent.sh"; }
-H="${SUDO_USER:+/var/home/$SUDO_USER}"; H="${H:-$HOME}"
+H="${SUDO_USER:+/var/home/$SUDO_USER}"; H="${H:-${HOME:-/root}}"   # set -u safe: HOME may be unset
 if [ -f "$H/.newt/personas/nugget.md" ] && [ -d "$H/.newt/skills" ]; then
   note "PASS persona + skills present for $(basename "$H")"
 else

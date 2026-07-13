@@ -6,7 +6,9 @@ set -euo pipefail
 U="${1:?usage: nugget-grant-tui <username>}"
 getent passwd "$U" >/dev/null || { echo "no such user: $U" >&2; exit 1; }
 
-getent group nugget-tui >/dev/null || groupadd -g 971 nugget-tui
+# Prefer GID 971 but fall back to any free GID (971 is taken on some bases; the
+# name is what every consumer looks up). Standalone (no lib-provision here).
+getent group nugget-tui >/dev/null || groupadd -g 971 nugget-tui 2>/dev/null || groupadd nugget-tui
 gpasswd -a "$U" nugget-tui
 
 # Apply to the already-running server now (group change alone isn't retroactive).

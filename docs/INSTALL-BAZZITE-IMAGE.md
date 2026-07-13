@@ -74,10 +74,15 @@ menu ("Switch to Desktop").
 
 ## Updates
 
-The image is bootc — updates arrive automatically via `bootc upgrade`
-(rebased from `ghcr.io/<you>/lava-chicken-os:stable`, which CI rebuilds weekly
-against the latest Bazzite base). `$HOME` and your provisioned state are
-untouched by updates.
+The image is bootc — updates arrive automatically in the background (from
+`ghcr.io/<you>/lava-chicken-os:stable`, which CI rebuilds weekly against the
+latest Bazzite base). `$HOME` and your provisioned state are untouched by updates.
+
+To update **on demand** without knowing bootc: `sudo lacos upgrade` downloads the
+latest and stages it (takes effect on the next reboot — so it won't interrupt
+anyone mid-game); `sudo lacos upgrade --now` stages and reboots; `sudo lacos
+upgrade --check` just looks. After a reboot, `lacos doctor` confirms the box is
+healthy.
 
 ## What's baked vs. pulled
 

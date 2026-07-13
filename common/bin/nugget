@@ -7,6 +7,19 @@ set -euo pipefail
 export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 export PATH="/var/lib/lava-chicken/bin:$HOME/.local/bin:$PATH"
 
+# Theme newt as "nugget", pure runtime config (no recompile). newt's inline
+# header — printed even with --no-splash — renders NEWT_BRAND_NAME + tagline +
+# the ansi-20 silhouette from NEWT_BRAND_LOGO_DIR, so the wordmark AND the small
+# logo re-theme TODAY. The FULL splash screen (bigger art) is staged behind
+# --no-splash until newt-agent#1119 makes the splash auto-clear instead of
+# blocking on a keypress; then we drop --no-splash. Brand values live in the
+# brand dir's brand.env (single source of truth); art comes from scripts/make-brand.sh.
+for d in /usr/share/lava-chicken/newt-brand /var/lib/lava-chicken/newt-brand; do
+  [ -d "$d" ] && { export NEWT_BRAND_LOGO_DIR="$d"; break; }
+done
+[ -n "${NEWT_BRAND_LOGO_DIR:-}" ] && [ -r "$NEWT_BRAND_LOGO_DIR/brand.env" ] \
+  && . "$NEWT_BRAND_LOGO_DIR/brand.env"
+
 # Make sure this user has the nugget persona in their own profile.
 P="$HOME/.newt/personas/nugget.md"
 if [ ! -f "$P" ]; then

@@ -146,6 +146,13 @@ jobs:
             # original brand media that must ship in the image
             need_f /usr/share/lava-chicken/brand/boot-sound.wav
             need_f /usr/share/lava-chicken/brand/wallpaper.png
+            need_f /usr/share/lava-chicken/brand/lava_chicken_os_login.png
+            # where plasma-login-manager exists (desktop), its default wallpaper
+            # must be our login art (#50). deck/base without it: skipped.
+            if [ -f /usr/lib/plasmalogin/defaults.conf ]; then
+              grep -q "lava_chicken_os_login.png" /usr/lib/plasmalogin/defaults.conf \
+                || { echo "plasma-login default background not wired to LaCOS art"; fail=1; }
+            fi
             need_f /usr/share/plymouth/themes/lava-chicken/lava-chicken.plymouth
             # firstboot + sshd must be statically enabled (they run day zero)
             for u in lava-chicken-firstboot sshd; do

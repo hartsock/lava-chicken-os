@@ -17,10 +17,32 @@ OS="$(os_id)"
 # --- nugget-tui = ADMINS ONLY -----------------------------------------------
 # Only wheel (admin) users may attach the resident nugget tmux. Kids are NOT
 # enrolled — the per-user icon (below) is their access. Revisit once OCAP ships.
+#
+# Kids must NEVER land here even if something (e.g. the KDE Users panel, whose
+# "Administrator" toggle silently adds users to wheel) wrongly put a kid in
+# wheel after 30-users removed them (#53). So: enroll wheel members EXCEPT known
+# kids, actively self-heal any kid already in nugget-tui, and shout if a kid is
+# in wheel at all — that's an admin-privilege leak the operator needs to fix.
+KIDS=" ${LAVA_KID_USERS:-} "                       # space-padded for word-match
+is_kid() { case "$KIDS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 getent group "$NUGGET_TUI_GROUP" >/dev/null || groupadd -g "$NUGGET_TUI_GID" "$NUGGET_TUI_GROUP"
 for name in $(getent group wheel | cut -d: -f4 | tr ',' ' '); do
   [ -n "$name" ] && [ "$name" != nugget ] || continue
+  if is_kid "$name"; then
+    # A kid in wheel = admin leak (not created by us). Refuse to compound it
+    # with resident-agent access, undo any prior enrollment, and flag it loudly.
+    gpasswd -d "$name" "$NUGGET_TUI_GROUP" >/dev/null 2>&1 || true
+    plog "SECURITY: kid '$name' is in wheel (admin) — NOT enrolling in nugget-tui;" \
+         "remove from wheel: 'sudo gpasswd -d $name wheel' (KDE Users 'Administrator'?)"
+    continue
+  fi
   gpasswd -a "$name" "$NUGGET_TUI_GROUP" >/dev/null && plog "nugget-tui += $name (admin)"
+done
+# Belt-and-suspenders: purge any kid from nugget-tui regardless of wheel state.
+for kid in ${LAVA_KID_USERS:-}; do
+  getent group "$NUGGET_TUI_GROUP" | cut -d: -f4 | tr ',' '\n' | grep -qx "$kid" \
+    && gpasswd -d "$kid" "$NUGGET_TUI_GROUP" >/dev/null 2>&1 \
+    && plog "nugget-tui -= $kid (kids never attach the resident agent)"
 done
 
 install_unit() {  # $1 = unit filename ; rewrites /usr/share -> /var on SteamOS

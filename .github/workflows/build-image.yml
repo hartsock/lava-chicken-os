@@ -168,6 +168,40 @@ jobs:
             [ "$fail" = 0 ] && echo "nugget layer OK" || { echo "SMOKE FAILED"; exit 1; }
           '
 
+      # #53: on hardware day both kids landed in `wheel` (the KDE Users panel
+      # re-added them after 30-users removed them), and 45 then cascaded that
+      # into nugget-tui (resident-agent access). Prove, in a throwaway root
+      # container, that the REAL enrollment logic refuses to promote a kid — and
+      # that `lacos doctor` DETECTS a kid wrongly left in wheel. (--fix isn't run
+      # here: its other remedies are networked/firstboot; the kid-revoke remedy
+      # itself is a trivial two-line `gpasswd -d`, exercised on real hardware.)
+      - name: Guard — kids never land in wheel/nugget-tui (#53)
+        run: |
+          set -euo pipefail
+          sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:build" -euo pipefail -c '
+            fail=0
+            useradd -M -s /usr/sbin/nologin adminci
+            useradd -M -s /usr/sbin/nologin kidci
+            gpasswd -a adminci wheel >/dev/null
+            gpasswd -a kidci   wheel >/dev/null   # the exact #53 misconfig: a kid in wheel
+            # Run the REAL enrollment (top of 45). It must exclude+self-heal the kid
+            # while still enrolling the genuine admin. Timeout-bound: 45 later touches
+            # systemctl, which no-ops fast in a container; the enrollment runs first.
+            timeout 120 env LAVA_KID_USERS=kidci \
+              bash /usr/share/lava-chicken/provision/45-nugget-tmux.sh >/tmp/45.log 2>&1 || true
+            member() { getent group "$2" | cut -d: -f4 | tr "," "\n" | grep -qx "$1"; }
+            member kidci   nugget-tui && { echo "BUG: kid enrolled in nugget-tui (guard broken)"; fail=1; }
+            member adminci nugget-tui || { echo "BUG: admin NOT enrolled (guard too broad)"; fail=1; }
+            # lacos doctor (no --fix, no remedies) must FLAG the kid still in wheel.
+            install -d /etc/lava-chicken
+            echo "LAVA_KID_USERS=kidci" > /etc/lava-chicken/site.conf
+            /usr/share/lava-chicken/bin/lacos-doctor 2>/dev/null \
+              | grep -Eq "FAIL kid .kidci. is in wheel" \
+              || { echo "BUG: doctor did not flag kid-in-wheel"; fail=1; }
+            if [ "$fail" = 0 ]; then echo "kid-privilege guard OK"; else
+              echo "===== 45 log ====="; cat /tmp/45.log; echo "GUARD FAILED"; exit 1; fi
+          '
+
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0

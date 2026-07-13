@@ -12,6 +12,7 @@ set -u
 PAY=/usr/share/lava-chicken
 STATE=/var/lib/lava-chicken
 [ -d "$PAY/provision" ] || PAY="$STATE"          # SteamOS staging fallback
+[ -r /etc/lava-chicken/site.conf ] && . /etc/lava-chicken/site.conf  # LAVA_KID_USERS
 FIX=0; [ "${1:-}" = "--fix" ] && FIX=1
 if [ "$FIX" = 1 ] && [ "$(id -u)" != 0 ]; then
   echo "--fix needs admin rights:  sudo lacos doctor --fix"; exit 1
@@ -90,7 +91,24 @@ else
   note "WARN no local models yet — run: lacos models  (~5 GB)"
 fi
 
-# 6. context lines (never fail)
+# 7. kids must stay unprivileged — never in wheel (sudo) or nugget-tui (resident
+# agent). The KDE Users panel's "Administrator" toggle silently re-adds kids to
+# wheel after 30-users removed them (#53); catch + repair that here.
+in_group() { getent group "$2" 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -qx "$1"; }
+for kid in ${LAVA_KID_USERS:-}; do
+  getent passwd "$kid" >/dev/null 2>&1 || continue
+  if in_group "$kid" wheel; then
+    note "FAIL kid '$kid' is in wheel (admin/sudo) — must be unprivileged"
+    remedy "drop-kid-priv $kid"
+  elif in_group "$kid" nugget-tui; then
+    note "FAIL kid '$kid' can attach the resident nugget agent (nugget-tui)"
+    remedy "drop-kid-priv $kid"
+  else
+    note "PASS kid '$kid' unprivileged (no wheel, no nugget-tui)"
+  fi
+done
+
+# 8. context lines (never fail)
 note "INFO boot mode: $(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?') · disk free: $(df -h /var 2>/dev/null | awk 'NR==2{print $4}')"
 
 # ── report ────────────────────────────────────────────────────────────────────
@@ -123,6 +141,10 @@ for r in "${todo[@]}"; do
                          systemctl reset-failed "$u" 2>/dev/null
                          systemctl start --no-block "$u" || rc=1 ;;
     mask-suspend)        systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target || rc=1 ;;
+    drop-kid-priv\ *)    k="${r#drop-kid-priv }"
+                         gpasswd -d "$k" wheel      2>/dev/null
+                         gpasswd -d "$k" nugget-tui 2>/dev/null
+                         echo "    revoked admin + resident-agent for $k (don't re-enable 'Administrator' in KDE Users)" ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

@@ -85,10 +85,21 @@ else
   note "FAIL auto-suspend NOT masked — the box can sleep mid-stream / mid-provisioning"
   remedy "mask-suspend"
 fi
-if command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | grep -q .; then
-  note "PASS models present ($(ollama list 2>/dev/null | tail -n +2 | wc -l | xargs) local)"
-else
-  note "WARN no local models yet — run: lacos models  (~5 GB)"
+# The agent is useless without its models. Require the CONFIGURED set (models.conf
+# else the default chat+embeddings pair) — not just "any model" — and make missing
+# models a FIXABLE fault: `sudo lacos doctor --fix` pulls them (idempotent).
+if command -v ollama >/dev/null 2>&1; then
+  want="$(grep -vE '^[[:space:]]*(#|$)' /etc/lava-chicken/models.conf 2>/dev/null | tr '\n' ' ')"
+  [ -n "${want// /}" ] || want="qwen2.5-coder:7b nomic-embed-text"
+  have="$(ollama list 2>/dev/null | awk 'NR>1{print $1}')"
+  missing=""
+  for m in $want; do printf '%s\n' "$have" | grep -q "^${m%%:*}" || missing="$missing $m"; done
+  if [ -n "${missing# }" ]; then
+    note "FAIL missing LLM models:$missing — the agent can't answer without them"
+    remedy "pull-models"
+  else
+    note "PASS LLM models present ($want)"
+  fi
 fi
 
 # 7. kids must stay unprivileged — never in wheel (sudo) or nugget-tui (resident
@@ -167,6 +178,9 @@ for r in "${todo[@]}"; do
                          # ONLY ~/.steam — never the whole home (subuid container storage).
                          [ -n "$h" ] && [ -d "$h/.steam" ] && chown -R "$u" "$h/.steam" \
                            && echo "    reclaimed $h/.steam for $u — relaunch Steam" || rc=1 ;;
+    pull-models)         m="$PAY/bin/lacos-pull-models"; [ -x "$m" ] || m="$STATE/bin/lacos-pull-models"
+                         echo "    pulling the configured model set (~5 GB; idempotent)…"
+                         "$m" || rc=1 ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

@@ -112,7 +112,21 @@ if ask_yesno "Set up kid accounts (passwordless local users, no admin rights)?";
 fi
 
 # 7) models -----------------------------------------------------------------
-say "LLM models: 'lacos models' to (re)pull; edit /etc/lava-chicken/models.conf to change the set."
+# The box needs a chat model + embeddings before nugget/newt can answer. Let the
+# operator confirm the set, persist it, ensure ollama is up, and pull now.
+MODELS="$(ask "LLM model set to pull (space-separated: chat model + embeddings)?" \
+  "${LAVA_MODELS:-qwen2.5-coder:7b nomic-embed-text}")"
+if [ -n "${MODELS// /}" ]; then
+  printf '%s\n' $MODELS | sudo tee /etc/lava-chicken/models.conf >/dev/null
+  save LAVA_MODELS "$MODELS"
+  if ask_yesno "Pull now via ollama? (~5 GB; skip to pull later with 'lacos models')  $MODELS"; then
+    sudo systemctl enable --now ollama.service 2>/dev/null || true
+    if lacos models; then say "models ready: $MODELS"
+    else say "model pull hit a snag — retry later: 'lacos models' or 'sudo lacos doctor --fix'"; fi
+  else
+    say "skipped — pull later with: lacos models"
+  fi
+fi
 
 date -u +%FT%TZ | sudo tee "$STAMP" >/dev/null
 say "✓ setup complete. Answers saved to $SITE — re-run 'lacos setup' any time."

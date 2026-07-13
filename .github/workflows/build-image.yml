@@ -150,9 +150,9 @@ jobs:
             grep -qE "^encoder[[:space:]]*=" /usr/share/lava-chicken/sunshine/sunshine.conf \
               || { echo "shipped sunshine.conf missing an encoder default"; fail=1; }
             need_x /usr/share/lava-chicken/bin/lacos-pull-models
-            # doctor's REQUIRED model set (what --fix pulls) must match the puller's
-            # default, or doctor demands a model the puller never fetches (a --fix
-            # loop that never clears). Same default string must live in both.
+            # doctor REQUIRED model set (what --fix pulls) must equal the puller
+            # default, or doctor demands a model the puller never fetches — a --fix
+            # loop that never clears. Same default string must live in both files.
             grep -q "qwen2.5-coder:7b nomic-embed-text" /usr/share/lava-chicken/bin/lacos-pull-models \
               && grep -q "qwen2.5-coder:7b nomic-embed-text" /usr/share/lava-chicken/bin/lacos-doctor \
               || { echo "doctor required-models default drifted from lacos-pull-models"; fail=1; }

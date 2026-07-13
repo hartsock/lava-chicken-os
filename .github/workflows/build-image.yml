@@ -175,13 +175,14 @@ jobs:
       # that `lacos doctor` DETECTS a kid wrongly left in wheel. (--fix isn't run
       # here: its other remedies are networked/firstboot; the kid-revoke remedy
       # itself is a trivial two-line `gpasswd -d`, exercised on real hardware.)
-      - name: Guard — kids never land in wheel/nugget-tui (#53)
+      - name: Guard — kid privileges (#53) + user-owned ~/.steam (#55)
         run: |
           set -euo pipefail
           sudo podman run --rm --entrypoint /usr/bin/bash "${IMAGE_NAME}:build" -euo pipefail -c '
             fail=0
             useradd -M -s /usr/sbin/nologin adminci
             useradd -M -s /usr/sbin/nologin kidci
+            useradd -m -s /usr/sbin/nologin steamci   # real home: the movie/steam-skeleton block runs for it (#55)
             gpasswd -a adminci wheel >/dev/null
             gpasswd -a kidci   wheel >/dev/null   # the exact #53 misconfig: a kid in wheel
             # Run the REAL enrollment (top of 45). It must exclude+self-heal the kid
@@ -198,9 +199,23 @@ jobs:
             /usr/share/lava-chicken/bin/lacos-doctor >/tmp/doctor.log 2>&1
             grep -Eq "FAIL kid .kidci. is in wheel" /tmp/doctor.log \
               || { echo "BUG: doctor did not flag kid-in-wheel"; fail=1; }
-            if [ "$fail" = 0 ]; then echo "kid-privilege guard OK"; else
+            # #55: 45 must leave a provisioned user OWNING ~/.steam, with root a
+            # SYMLINK (not a root-owned real dir that blocks Steam from starting).
+            SH="$(getent passwd steamci | cut -d: -f6)"
+            [ "$(stat -c %U "$SH/.steam" 2>/dev/null)" = steamci ] \
+              || { echo "BUG(#55): $SH/.steam not owned by steamci (install -d parent-chown regression)"; fail=1; }
+            [ -L "$SH/.steam/root" ] \
+              || { echo "BUG(#55): $SH/.steam/root is not a symlink (shadows Steam)"; fail=1; }
+            # doctor must DETECT a root-owned ~/.steam — fabricate the old-bug state.
+            chown root "$SH/.steam"
+            /usr/share/lava-chicken/bin/lacos-doctor >/tmp/doctor2.log 2>&1
+            grep -Eq "steamci.* is owned by .root." /tmp/doctor2.log \
+              || { echo "BUG: doctor did not flag root-owned ~/.steam"; fail=1; }
+            if [ "$fail" = 0 ]; then echo "kid-privilege + ~/.steam guard OK"; else
               echo "===== 45 log ====="; cat /tmp/45.log
               echo "===== doctor log ====="; cat /tmp/doctor.log
+              echo "===== doctor2 (steam) log ====="; cat /tmp/doctor2.log 2>/dev/null
+              echo "===== steam state ====="; ls -la "$SH/.steam" 2>/dev/null; stat -c "%U %n" "$SH/.steam" 2>/dev/null
               echo "===== groups ====="; getent group wheel nugget-tui
               echo "GUARD FAILED"; exit 1; fi
           '

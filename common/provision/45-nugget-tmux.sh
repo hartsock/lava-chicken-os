@@ -118,13 +118,32 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
     install -m0644 -o "$uname" "$HERE/../autostart/lava-chicken-wallpaper.desktop" \
       "$uhome/.config/autostart/lava-chicken-wallpaper.desktop"
   fi
-  # Game-Mode startup movie (#31): per-user Steam uioverrides — used when the
-  # box runs in console mode; harmless on desktop.
+  # Game-Mode startup movie (#31): Steam reads it from ~/.steam/root/config/
+  # uioverrides/movies — but ~/.steam/{steam,root} are meant to be SYMLINKS into
+  # ~/.local/share/Steam. The old `install -d -o $u ~/.steam/root/...` was doubly
+  # broken (real-hardware #55, broke every not-yet-launched kid): `install -d`
+  # chowns ONLY the named leaf, so ~/.steam was left ROOT-owned — after which the
+  # user's own Steam can't create its ~/.steam/steam symlink and never opens —
+  # and it materialised ~/.steam/root as a real dir shadowing Steam's symlink.
+  # Seed the SAME shape Steam itself makes, entirely user-owned: movie in the
+  # real config dir + both symlinks (only if absent — never clobber a live install).
   if [ -r "$HERE/../brand/boot-movie.webm" ]; then
-    install -d -o "$uname" "$uhome/.steam/root/config/uioverrides/movies" 2>/dev/null \
-      && install -m0644 -o "$uname" "$HERE/../brand/boot-movie.webm" \
-           "$uhome/.steam/root/config/uioverrides/movies/lava-chicken.webm" 2>/dev/null \
-      || true
+    sdir="$uhome/.local/share/Steam"
+    if install -d "$sdir/config/uioverrides/movies" 2>/dev/null \
+       && install -m0644 "$HERE/../brand/boot-movie.webm" \
+            "$sdir/config/uioverrides/movies/lava-chicken.webm" 2>/dev/null; then
+      install -d "$uhome/.steam" 2>/dev/null
+      for l in steam root; do
+        [ -e "$uhome/.steam/$l" ] || [ -L "$uhome/.steam/$l" ] || ln -s "$sdir" "$uhome/.steam/$l"
+      done
+      # install -d does NOT chown the parents it creates; fix ownership ourselves
+      # (chown -h for the symlinks). NEVER chown all of ~/.local/share/Steam — a
+      # real install's game data lives there; only our small config subtree.
+      chown -R  "$uname" "$sdir/config"  2>/dev/null || true
+      chown -Rh "$uname" "$uhome/.steam" 2>/dev/null || true
+      chown     "$uname" "$sdir" "$uhome/.local/share" "$uhome/.local" 2>/dev/null || true
+      plog "boot movie + steam skeleton -> $uname"
+    fi
   fi
 done < <(getent passwd)
 

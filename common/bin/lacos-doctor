@@ -108,9 +108,10 @@ for kid in ${LAVA_KID_USERS:-}; do
   fi
 done
 
-# 8. Steam home ownership — a root-owned ~/.steam (classically from a stray
-# `sudo steam`) blocks Steam from creating the ~/.steam/steam symlink, so the
-# client never opens (real-hardware finding). Only assert what we can actually
+# 8. Steam home ownership — a root-owned ~/.steam blocks Steam from creating the
+# ~/.steam/steam symlink, so the client never opens (real-hardware finding: a
+# root-run provision step created it before the user first launched Steam; a
+# stray `sudo steam` does the same). Only assert what we can actually
 # stat: as root (sudo lacos doctor) every home is visible; as a normal user the
 # 0700 homes of OTHERS are unreadable and correctly skipped. Repair touches ONLY
 # ~/.steam — never the whole home (rootless-podman subuid storage lives under it

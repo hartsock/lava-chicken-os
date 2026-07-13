@@ -110,6 +110,8 @@ jobs:
             need_x() { [ -x "$1" ] || { echo "MISSING exec: $1"; fail=1; }; }
             # branded entrypoints + per-user agent launcher
             need_x /usr/bin/lacos
+            /usr/bin/lacos help 2>/dev/null | grep -q "^  upgrade " \
+              || { echo "lacos is missing the upgrade command"; fail=1; }
             need_x /usr/bin/nugget
             # nugget launcher wears the real mascot, not a stock icon (#40)
             need_f /usr/share/icons/hicolor/256x256/apps/nugget.png

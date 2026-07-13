@@ -26,6 +26,8 @@ usage: lacos <command>
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
   setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
   doctor        check the box end-to-end; 'sudo lacos doctor --fix' repairs
+  upgrade       fetch the latest OS: 'sudo lacos upgrade' stages it (reboot later),
+                --now stages + reboots, --check just looks
   models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
   apps          install/refresh the creative + gaming Flatpak apps
   version       print the OS version
@@ -109,6 +111,53 @@ case "${1:-help}" in
     shift
     if d="$(find_bin lacos-doctor)"; then exec "$d" "$@"
     else echo "lacos-doctor not found" >&2; exit 1; fi
+    ;;
+  upgrade|update)
+    # Parent-friendly wrapper around `bootc upgrade` — fetch the newest LaCOS
+    # image without anyone needing to know bootc or uupd. Defaults to STAGE (no
+    # reboot) so it never yanks the box out from under a kid mid-game; --now
+    # reboots, --check just looks. Pairs with doctor: upgrade -> reboot -> doctor.
+    shift; sub="${1:-}"
+    command -v bootc >/dev/null 2>&1 || { echo "Upgrades need the bootc-based (Bazzite) image; this box doesn't have bootc." >&2; exit 1; }
+    [ "$(id -u)" = 0 ] || { echo "Upgrades need admin rights — run:  sudo lacos upgrade${sub:+ $sub}"; exit 1; }
+    # uupd (the auto-updater) can hold the transaction lock ("System transaction in
+    # progress"). Pause BOTH its timer and service around a real upgrade so it
+    # can't re-grab the lock mid-download; re-arm the timer after so background
+    # auto-updates aren't left off. --check is read-only and never pauses it.
+    pause_autoupdate()  { echo "  (pausing the auto-updater so it doesn't clash)"; systemctl stop  uupd.timer uupd.service 2>/dev/null || true; }
+    resume_autoupdate() { systemctl start uupd.timer 2>/dev/null || true; }
+    reboot_hint() {
+      echo "Downloaded — it takes effect on the NEXT restart. Reboot when no one is mid-game:"
+      echo "  systemctl reboot        (or the power menu; or:  sudo lacos upgrade --now)"
+      echo "After it reboots, confirm the box is healthy:  lacos doctor"
+    }
+    case "$sub" in
+      --check|check)
+        echo "Checking for a newer Lava Chicken OS ..."
+        bootc upgrade --check || true   # may exit non-zero to signal "update available"
+        ;;
+      --now|--apply)
+        echo "Applying the latest Lava Chicken OS — the box restarts if an update is pending ..."
+        pause_autoupdate
+        # --apply reboots when something is staged (killing us here); if it
+        # returns, nothing was pending — re-arm auto-update either way.
+        bootc upgrade --apply || { rc=$?; resume_autoupdate; exit "$rc"; }
+        resume_autoupdate
+        echo "Already up to date — nothing to apply. 🐔"
+        ;;
+      ''|--stage|stage)
+        echo "Downloading the latest Lava Chicken OS (this can take a few minutes) ..."
+        pause_autoupdate
+        bootc upgrade || { rc=$?; resume_autoupdate; exit "$rc"; }
+        resume_autoupdate
+        staged="$(bootc status --format json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); print("y" if (s.get("status") or {}).get("staged") else "n")' 2>/dev/null || echo '?')"
+        echo
+        # Only claim "up to date" on a CONFIRMED no-stage; y or '?' (couldn't
+        # tell) -> assume pending and tell them to reboot, never a false all-clear.
+        if [ "$staged" = n ]; then echo "Already up to date. 🐔"; else reboot_hint; fi
+        ;;
+      *) echo "usage: sudo lacos upgrade [--check | --now]   (no flag = download now, reboot later)" >&2; exit 2 ;;
+    esac
     ;;
   version) ver ;;
   help|-h|--help) usage ;;

@@ -126,12 +126,13 @@ jobs:
             # seeded newt config must ship and point at the CHAT model, never the
             # embedding model (newt-agent#1116).
             need_f /usr/share/lava-chicken/newt/config.toml
-            # look at config VALUES only — the file's comment mentions nomic-embed
-            # to explain the bug, and must not trip the check.
-            newtcfg=$(grep -vE '^[[:space:]]*#' /usr/share/lava-chicken/newt/config.toml)
-            printf '%s' "$newtcfg" | grep -q "qwen2.5-coder:7b" \
+            # check config VALUES only (comment lines name nomic-embed to explain
+            # the bug and must not trip this). No single quotes: this whole block
+            # is already inside bash -c "..." single quotes.
+            newtcfg=$(grep -vE "^[[:space:]]*#" /usr/share/lava-chicken/newt/config.toml)
+            printf "%s" "$newtcfg" | grep -q "qwen2.5-coder:7b" \
               || { echo "seeded newt config missing chat model qwen2.5-coder:7b"; fail=1; }
-            printf '%s' "$newtcfg" | grep -q "nomic-embed" \
+            printf "%s" "$newtcfg" | grep -q "nomic-embed" \
               && { echo "seeded newt config activates the embedding model (#1116)"; fail=1; } || true
             # ollama must be BAKED (#28) — v0.0.1 shipped none and the agent was DOA
             need_x /usr/bin/ollama

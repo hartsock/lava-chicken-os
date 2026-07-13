@@ -108,7 +108,24 @@ for kid in ${LAVA_KID_USERS:-}; do
   fi
 done
 
-# 8. context lines (never fail)
+# 8. Steam home ownership — a root-owned ~/.steam (classically from a stray
+# `sudo steam`) blocks Steam from creating the ~/.steam/steam symlink, so the
+# client never opens (real-hardware finding). Only assert what we can actually
+# stat: as root (sudo lacos doctor) every home is visible; as a normal user the
+# 0700 homes of OTHERS are unreadable and correctly skipped. Repair touches ONLY
+# ~/.steam — never the whole home (rootless-podman subuid storage lives under it
+# and a recursive chown would corrupt it).
+while IFS=: read -r uname _ uid _ _ uhome _; do
+  [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -d "$uhome/.steam" ] || continue
+  owner="$(stat -c %U "$uhome/.steam" 2>/dev/null)" || continue
+  [ -n "$owner" ] || continue
+  if [ "$owner" != "$uname" ]; then
+    note "FAIL $uname's ~/.steam is owned by '$owner', not $uname — Steam can't start"
+    remedy "fix-steam-home $uname"
+  fi
+done < <(getent passwd)
+
+# 9. context lines (never fail)
 note "INFO boot mode: $(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?') · disk free: $(df -h /var 2>/dev/null | awk 'NR==2{print $4}')"
 
 # ── report ────────────────────────────────────────────────────────────────────
@@ -145,6 +162,10 @@ for r in "${todo[@]}"; do
                          gpasswd -d "$k" wheel      2>/dev/null
                          gpasswd -d "$k" nugget-tui 2>/dev/null
                          echo "    revoked admin + resident-agent for $k (don't re-enable 'Administrator' in KDE Users)" ;;
+    fix-steam-home\ *)   u="${r#fix-steam-home }"; h="$(getent passwd "$u" | cut -d: -f6)"
+                         # ONLY ~/.steam — never the whole home (subuid container storage).
+                         [ -n "$h" ] && [ -d "$h/.steam" ] && chown -R "$u" "$h/.steam" \
+                           && echo "    reclaimed $h/.steam for $u — relaunch Steam" || rc=1 ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

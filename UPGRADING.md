@@ -61,6 +61,29 @@ never see a scary "System transaction in progress" error.
 
 ---
 
+## Channels: how brave do you want to be?
+
+LaCOS has two update **channels**:
+
+- **stable** *(recommended for a family box)* — only versions that have been
+  tested and cut as a proper **release**. Fewer, calmer updates.
+- **unstable** — every change the moment it lands, straight from the workshop.
+  Great if you're helping build LaCOS; bumpier if you just want it to work.
+
+`lacos upgrade` always follows your channel — on **stable** it can only move to a
+new *release*, so a random weekday's change can't surprise the box.
+
+```bash
+lacos channel                    # which channel am I on?
+sudo lacos channel stable        # switch to tested releases only (recommended)
+sudo lacos channel unstable      # switch to bleeding edge
+```
+
+> New installs start on **unstable** for now. The moment the project cuts its
+> first stable release, `sudo lacos channel stable` moves you to the calm lane —
+> if it says "no release yet," that just means one hasn't been cut yet. Switching
+> channels takes effect on the next restart, same as an upgrade.
+
 ## When to restart
 
 A staged update only becomes real on a restart. Pick a calm moment — **nobody

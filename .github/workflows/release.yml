@@ -1,0 +1,68 @@
+# Release = promote the current UNSTABLE tip to the STABLE channel.
+#
+# Channels are just image tags a box tracks (see `lacos channel`):
+#   unstable  ->  :stable  / :deck            (rebuilt on every merge; bleeding edge)
+#   stable    ->  :stable-release / :deck-release  (moved ONLY here, on a release)
+#
+# Publishing a GitHub release snapshots the current :stable/:deck images to the
+# -release tags (+ an immutable :<variant>-<tag> pin). Boxes on the stable channel
+# then only move forward when you cut a release. This assumes unstable is green +
+# soaked when you release (that's the human gate; #1120 is the agent that proposes it).
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  packages: write
+  contents: read
+
+concurrency:
+  group: release-promote          # the -release tags are shared global state; serialize
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    # Only real releases reach the stable channel — never a draft or pre-release (rc).
+    if: ${{ github.event.release.prerelease == false && github.event.release.draft == false }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote unstable -> stable channel
+        env:
+          REG: ghcr.io/${{ github.repository_owner }}/lava-chicken-os
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          reg="${REG@L}"               # GHCR requires a lowercase owner
+          # OCI tags allow only [A-Za-z0-9_.-], <=128 chars, no leading . or - .
+          # (semver build metadata like +build.5, or a stray char, must not slip through.)
+          tag="$(printf '%s' "$TAG" | tr -c 'A-Za-z0-9_.-' '-' | sed 's/^[.-]*//' | cut -c1-128)"
+          [ -n "$tag" ] || { echo "::error::release tag sanitizes to empty"; exit 1; }
+          command -v skopeo >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq skopeo; }
+          promoted=0
+          for v in stable deck; do
+            # A fork (or main before a :deck build exists) may not publish this variant;
+            # skip it cleanly instead of failing the job mid-promotion.
+            if ! digest="$(skopeo inspect --format '{{.Digest}}' "docker://${reg}:${v}" 2>/dev/null)"; then
+              echo "::notice::no :$v image on the registry — skipping"
+              continue
+            fi
+            # Pin the resolved DIGEST so :${v}-release and the immutable :${v}-${tag}
+            # snapshot the exact same image (and log it — this is the provenance record).
+            src="${reg}@${digest}"
+            echo "::group::promote :$v ($digest)  ->  :${v}-release  +  :${v}-${tag}"
+            skopeo copy --all "docker://${src}" "docker://${reg}:${v}-release"
+            skopeo copy --all "docker://${src}" "docker://${reg}:${v}-${tag}"
+            echo "::endgroup::"
+            promoted=$((promoted + 1))
+          done
+          [ "$promoted" -gt 0 ] || { echo "::error::no images found to promote"; exit 1; }
+          echo "Stable channel now points at release ${TAG} (${promoted} variant(s))."

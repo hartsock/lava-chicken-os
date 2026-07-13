@@ -13,21 +13,42 @@ source "$HERE/../sunshine/ports.env"
 
 USER_NAME="$(primary_user)"
 OS="$(os_id)"
+# Per-box/site overrides (LAVA_SUNSHINE_ENCODER etc.) if the wizard wrote them.
+# shellcheck disable=SC1091
+[ -r /etc/lava-chicken/site.conf ] && . /etc/lava-chicken/site.conf
 
 # --- make sure Sunshine is present + its user service is enabled ------------
-# Pin the encoder BEFORE starting Sunshine (#45). On Polaris/older AMD, Sunshine's
-# encoder auto-probe SEGFAULTS in the Vulkan-encode probe before it ever reaches
-# VAAPI (crash-loop). VAAPI is the universal AMD-Mesa path (APPS.md), so default
-# to it. Newer AMD cards can delete this line to re-enable auto-probe. Idempotent.
-pin_vaapi_encoder() {
-  local home cfg
+# Where the shipped Sunshine config defaults live (build.sh syncs common/ ->
+# /usr/share/lava-chicken; SteamOS stages under $STATE).
+SUN_SHARE=/usr/share/lava-chicken/sunshine
+[ -d "$SUN_SHARE" ] || SUN_SHARE="$HERE/../sunshine"
+
+# Seed the user's Sunshine config from the shipped defaults, COPY-IF-ABSENT so an
+# operator's own edits are never clobbered (#45). apps.json = the LaCOS app
+# entries; sunshine.conf = per-box settings incl. the encoder. The encoder is
+# CONFIG, not code: the shipped sunshine.conf defaults to `encoder = vaapi`
+# (required on Polaris/older AMD, where the auto-probe SIGSEGVs in the vulkan
+# encoder path), and LAVA_SUNSHINE_ENCODER (site.conf) overrides per box.
+seed_sunshine_config() {
+  local home cfgdir f enc
   home="$(getent passwd "$USER_NAME" | cut -d: -f6)"; [ -n "$home" ] || return 0
-  cfg="$home/.config/sunshine/sunshine.conf"
-  install -d -m0755 -o "$USER_NAME" "$(dirname "$cfg")"
-  [ -f "$cfg" ] || { : > "$cfg"; chown "$USER_NAME" "$cfg"; }
-  if ! grep -qE '^[[:space:]]*encoder[[:space:]]*=' "$cfg"; then
-    printf 'encoder = vaapi\n' >> "$cfg"   # avoid the crashing auto-probe on Polaris
-    plog "Sunshine: pinned encoder = vaapi (avoids Polaris auto-probe segfault; #45)"
+  cfgdir="$home/.config/sunshine"
+  install -d -m0755 -o "$USER_NAME" "$cfgdir"
+  for f in sunshine.conf apps.json; do
+    [ -f "$cfgdir/$f" ] && continue                 # respect existing user config
+    [ -r "$SUN_SHARE/$f" ] && install -m0644 -o "$USER_NAME" "$SUN_SHARE/$f" "$cfgdir/$f" \
+      && plog "Sunshine: seeded $f"
+  done
+  # Optional per-box encoder override from site.conf.
+  enc="${LAVA_SUNSHINE_ENCODER:-}"
+  if [ -n "$enc" ] && [ -f "$cfgdir/sunshine.conf" ]; then
+    if grep -qE '^[[:space:]]*encoder[[:space:]]*=' "$cfgdir/sunshine.conf"; then
+      sed -i "s|^[[:space:]]*encoder[[:space:]]*=.*|encoder = $enc|" "$cfgdir/sunshine.conf"
+    else
+      printf 'encoder = %s\n' "$enc" >> "$cfgdir/sunshine.conf"
+    fi
+    chown "$USER_NAME" "$cfgdir/sunshine.conf"
+    plog "Sunshine: encoder set to '$enc' (LAVA_SUNSHINE_ENCODER)"
   fi
 }
 
@@ -35,14 +56,17 @@ enable_user_service() {
   # user services need lingering to run without an active login session
   loginctl enable-linger "$USER_NAME" 2>/dev/null || true
   as_primary systemctl --user daemon-reload 2>/dev/null || true
-  pin_vaapi_encoder
-  # Match ANY sunshine-ish user unit (#45): LizardByte renamed it
-  # sunshine.service -> app-dev.lizardbyte.app.Sunshine.service; a hard-coded
-  # name silently skipped the enable. Grep case-insensitively so a future
-  # rename can't break this again.
-  local unit
-  unit="$(as_primary systemctl --user list-unit-files --no-legend 2>/dev/null \
-          | awk '{print $1}' | grep -iE 'sunshine' | head -1)"
+  seed_sunshine_config
+  # The image ships LizardByte Sunshine natively; its user unit is
+  # app-dev.lizardbyte.app.Sunshine.service (it carries Alias=sunshine.service,
+  # but aliases do NOT appear in list-unit-files until the unit is enabled — the
+  # old guard grepped '^sunshine.service' and never matched on a fresh box, so
+  # first boot silently skipped the enable, #45). Match EITHER name and enable
+  # the REAL unit; prefer the native LizardByte unit.
+  local units unit
+  units="$(as_primary systemctl --user list-unit-files --no-legend 2>/dev/null | awk '{print $1}')"
+  unit="$(printf '%s\n' "$units" | grep -E '^app-dev\.lizardbyte\.app\.Sunshine\.service$' | head -1)"
+  [ -n "$unit" ] || unit="$(printf '%s\n' "$units" | grep -E '^sunshine\.service$' | head -1)"
   if [ -n "$unit" ]; then
     as_primary systemctl --user enable --now "$unit" && \
       plog "Sunshine user service enabled ($unit)." && return 0
@@ -52,10 +76,11 @@ enable_user_service() {
 
 case "$OS" in
   bazzite)
-    # Bazzite ships Sunshine. Prefer its own setup path, then enable the service.
-    # VERIFY: `ujust setup-sunshine` may be interactive; enabling the user
-    # service directly is the non-interactive route.
-    enable_user_service || pwarn "Sunshine service not found — run 'ujust setup-sunshine' once, then re-run this."
+    # LaCOS ships LizardByte Sunshine NATIVELY in the image (/usr/bin/sunshine +
+    # the app-dev.lizardbyte.app.Sunshine.service user unit). Enable THAT.
+    # Do NOT use `ujust setup-sunshine`: it now installs a SECOND Sunshine via
+    # Homebrew (homebrew.sunshine.service), which conflicts with the native one.
+    enable_user_service || pwarn "Sunshine user unit not found — image may not ship it (check: systemctl --user list-unit-files | grep -i sunshine)."
     ;;
   steamos|*)
     # SteamOS (and unknown): install the LizardByte Sunshine Flatpak (user scope).

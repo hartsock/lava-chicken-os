@@ -123,6 +123,13 @@ jobs:
             # bundled newt skills (#19) must ship in the payload
             need_f /usr/share/lava-chicken/newt-skills/youtube-prep/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/video-edit/SKILL.md
+            # seeded newt config must ship and point at the CHAT model, never the
+            # embedding model (newt-agent#1116).
+            need_f /usr/share/lava-chicken/newt/config.toml
+            grep -q "qwen2.5-coder:7b" /usr/share/lava-chicken/newt/config.toml \
+              || { echo "seeded newt config missing chat model qwen2.5-coder:7b"; fail=1; }
+            grep -q "nomic-embed" /usr/share/lava-chicken/newt/config.toml \
+              && { echo "seeded newt config references the embedding model (#1116)"; fail=1; } || true
             # ollama must be BAKED (#28) — v0.0.1 shipped none and the agent was DOA
             need_x /usr/bin/ollama
             need_f /usr/lib/systemd/system/ollama.service
@@ -206,6 +213,12 @@ jobs:
               || { echo "BUG(#55): $SH/.steam not owned by steamci (install -d parent-chown regression)"; fail=1; }
             [ -L "$SH/.steam/root" ] \
               || { echo "BUG(#55): $SH/.steam/root is not a symlink (shadows Steam)"; fail=1; }
+            # #1116: 45 must seed ~/.newt/config.toml at the CHAT model, and leave
+            # ~/.newt user-owned (the parent-chown bug that broke newt first-run).
+            [ "$(stat -c %U "$SH/.newt" 2>/dev/null)" = steamci ] \
+              || { echo "BUG: $SH/.newt not owned by steamci (install -d parent-chown)"; fail=1; }
+            grep -q "qwen2.5-coder:7b" "$SH/.newt/config.toml" 2>/dev/null \
+              || { echo "BUG(#1116): steamci ~/.newt/config.toml not seeded with the chat model"; fail=1; }
             # doctor must DETECT a root-owned ~/.steam — fabricate the old-bug state.
             chown root "$SH/.steam"
             /usr/share/lava-chicken/bin/lacos-doctor >/tmp/doctor2.log 2>&1

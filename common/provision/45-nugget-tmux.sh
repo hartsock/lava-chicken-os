@@ -87,6 +87,11 @@ install -d -m0755 "$STATE/persona"
 sed "s/@AGENT_NAME@/$DISP/g" "$HERE/../persona/nugget-persona.md" > "$STATE/persona/nugget.md"
 chmod 0644 "$STATE/persona/nugget.md"
 install -D -m0644 "$STATE/persona/nugget.md" /etc/skel/.newt/personas/nugget.md
+# Pre-seed newt's config (points at the local ollama CHAT model qwen2.5-coder:7b)
+# so first-run skips its auto-probe, which wrongly activates the embedding model
+# on a fresh box (Gilamonster-Foundation/newt-agent#1116).
+[ -r "$HERE/../newt/config.toml" ] \
+  && install -D -m0644 "$HERE/../newt/config.toml" /etc/skel/.newt/config.toml
 # Bundled newt SKILLS ride the same rails (#19): whole skill dirs copied to
 # ~/.newt/skills/<name>/ (newt's per-user discovery path; sibling files ship
 # too, per the skill format). Their frontmatter caveats (net: {only: []})
@@ -105,6 +110,15 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
   [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -d "$uhome" ] || continue
   install -d -m0755 -o "$uname" "$uhome/.newt/personas"
   install -m0644 -o "$uname" "$STATE/persona/nugget.md" "$uhome/.newt/personas/nugget.md"
+  # Seed newt's config (chat model qwen2.5-coder:7b) so first-run skips its
+  # auto-probe / wrong-model auto-select (newt-agent#1116). Only if the user has
+  # none — never clobber their real config.
+  [ -r "$HERE/../newt/config.toml" ] && [ ! -e "$uhome/.newt/config.toml" ] \
+    && install -m0644 -o "$uname" "$HERE/../newt/config.toml" "$uhome/.newt/config.toml"
+  # `install -d -o` chowns only the leaf, leaving the ~/.newt PARENT root-owned
+  # (#55 class) — which is what made newt first-run fail with EACCES writing its
+  # config on real hardware. Re-own ~/.newt itself (tiny; safe to -R).
+  chown -R "$uname" "$uhome/.newt" 2>/dev/null || true
   for sk in "$SKILLS_SRC"/*/; do
     [ -f "$sk/SKILL.md" ] || continue
     skn="$(basename "$sk")"

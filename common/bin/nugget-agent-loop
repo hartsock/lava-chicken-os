@@ -8,6 +8,14 @@
 set -u
 export PATH="/var/lib/lava-chicken/bin:$HOME/.local/bin:$PATH"   # shared newt
 export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+# Theme newt as "nugget" — same brand as the per-user launcher (common/bin/nugget
+# carries the full explanation + the --no-splash / newt-agent#1119 note). Brand
+# values come from the brand dir's brand.env (single source of truth).
+for d in /usr/share/lava-chicken/newt-brand /var/lib/lava-chicken/newt-brand; do
+  [ -d "$d" ] && { export NEWT_BRAND_LOGO_DIR="$d"; break; }
+done
+[ -n "${NEWT_BRAND_LOGO_DIR:-}" ] && [ -r "$NEWT_BRAND_LOGO_DIR/brand.env" ] \
+  && . "$NEWT_BRAND_LOGO_DIR/brand.env"
 cd "$HOME" 2>/dev/null || true
 
 backoff=1

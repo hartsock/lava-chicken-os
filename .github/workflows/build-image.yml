@@ -115,6 +115,24 @@ jobs:
             need_f /usr/share/icons/hicolor/256x256/apps/nugget.png
             grep -q "^Icon=nugget" /usr/share/applications/nugget-agent.desktop \
               || { echo "nugget launcher not using the mascot icon"; fail=1; }
+            # newt theme (reuse thesis): the whole brand ships + the launcher wires
+            # it, so newt reskins with no recompile. newt silently falls back to its
+            # own art on any missing/blank stem, so CI is the only net — check ALL
+            # stems the launcher references, and that the shown ones kept truecolor
+            # (newt greps for 8;2;; a regen without --colors full ships all-blank).
+            NB=/usr/share/lava-chicken/newt-brand
+            for s in ansi-10 ansi-20 ansi-40 ansi-full ansi-120 ansi-160 ascii-40; do
+              need_f "$NB/nugget-$s.txt"
+            done
+            for s in ansi-20 ansi-40; do   # rendered in the inline header + splash
+              grep -q "8;2;" "$NB/nugget-$s.txt" \
+                || { echo "brand art $s lost truecolor (regen: make-brand.sh, --colors full)"; fail=1; }
+            done
+            need_f "$NB/brand.env"
+            grep -qE "^export NEWT_BRAND_NAME=" "$NB/brand.env" \
+              || { echo "brand.env does not set NEWT_BRAND_NAME"; fail=1; }
+            grep -q "NEWT_BRAND_LOGO_DIR/brand.env" /usr/bin/nugget \
+              || { echo "nugget launcher does not source the brand env"; fail=1; }
             need_x /usr/bin/nugget-agentctl
             # system units that must be baked in
             for u in lava-chicken-firstboot lava-chicken-boot-sound nugget-agent-tmux \

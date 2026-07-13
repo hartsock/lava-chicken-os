@@ -115,11 +115,7 @@ jobs:
             need_f /usr/share/icons/hicolor/256x256/apps/nugget.png
             grep -q "^Icon=nugget" /usr/share/applications/nugget-agent.desktop \
               || { echo "nugget launcher not using the mascot icon"; fail=1; }
-            need_x /usr/bin/nugget
-            # nugget launcher wears the real mascot, not a stock icon (#40)
-            need_f /usr/share/icons/hicolor/256x256/apps/nugget.png
-            grep -q "^Icon=nugget" /usr/share/applications/nugget-agent.desktop \
-              || { echo "nugget launcher not using the mascot icon"; fail=1; }-agentctl
+            need_x /usr/bin/nugget-agentctl
             # system units that must be baked in
             for u in lava-chicken-firstboot lava-chicken-boot-sound nugget-agent-tmux \
                      lava-chicken-models lava-chicken-apps; do

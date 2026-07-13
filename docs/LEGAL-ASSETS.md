@@ -24,6 +24,11 @@ What CAN live in the repo:
   blocks `*.wav`/`*.webm` repo-wide and re-includes only these two. It riffs on a Minecraft *aesthetic* (blocky, a Steve-style
   cap) but is an original character, not a Mojang asset. If you fork and are
   wary of the resemblance, swap in your own mascot at the same paths.
+- **The login-screen background** (`assets/brand/lava_chicken_os_login.png`) —
+  owner-supplied original scene art (the flaming Nugget at a battlestation), the
+  plasma-login greeter default. Original characters + props riffing on a
+  lava/voxel aesthetic — no third-party assets. Fork and want your own? Swap the
+  image at the same path; `bazzite/build.sh` points the greeter at it.
 - All scripts, docs, and configs (MIT).
 
 The `.gitignore` blocks `assets/user/*` and common media extensions repo-wide

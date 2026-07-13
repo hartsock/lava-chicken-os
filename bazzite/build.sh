@@ -92,6 +92,25 @@ install -D -m0644 "$PAY/profile.d/lava-chicken.sh"       /etc/profile.d/lava-chi
 # that applies it once (so it's the default for every user, incl. the kids).
 [ -r "$PAY/brand/wallpaper.png" ] && install -D -m0644 "$PAY/brand/wallpaper.png" /usr/share/wallpapers/lava-chicken/wallpaper.png
 install -D -m0644 "$PAY/autostart/lava-chicken-wallpaper.desktop" /etc/skel/.config/autostart/lava-chicken-wallpaper.desktop
+
+# --- Login-screen background (plasma-login-manager greeter, #50) --------------
+# The greeter reads /usr/lib/plasmalogin/defaults.conf; per the package README,
+# MANAGED images set the default wallpaper there. Point it at our login art
+# (ships in the payload brand dir). A user's own choice via System Settings ->
+# Login Screen writes /etc/plasmalogin.conf and overrides this — so it's only
+# the DEFAULT. Guarded: the deck variant / any base without plasma-login-manager
+# simply skips (defaults.conf absent).
+LOGIN_IMG="$PAY/brand/lava_chicken_os_login.png"
+PLD=/usr/lib/plasmalogin/defaults.conf
+if [ -r "$LOGIN_IMG" ] && [ -f "$PLD" ]; then
+  if grep -q '^Image=file://' "$PLD"; then
+    sed -i "s|^Image=file://.*|Image=file://$LOGIN_IMG|; s|^PreviewImage=file://.*|PreviewImage=file://$LOGIN_IMG|" "$PLD"
+  else
+    printf '\n[Greeter]\nWallpaperPlugin=org.kde.image\n\n[Greeter][Wallpaper][org.kde.image][General]\nImage=file://%s\nPreviewImage=file://%s\n' \
+      "$LOGIN_IMG" "$LOGIN_IMG" >> "$PLD"
+  fi
+  echo "[lava-chicken build] plasma-login background -> $LOGIN_IMG"
+fi
 for u in lava-chicken-boot-sound.service nugget-agent-tmux.service nugget-agent-grant@.service \
          lava-chicken-models.service lava-chicken-apps.service; do
   install -D -m0644 "$PAY/systemd/$u" "/usr/lib/systemd/system/$u"

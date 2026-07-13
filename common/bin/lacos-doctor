@@ -79,6 +79,15 @@ fi
 theme="$(plymouth-set-default-theme 2>/dev/null || echo none)"
 [ "$theme" = lava-chicken ] && note "PASS boot splash theme set" \
   || { note "FAIL boot splash theme is '$theme' (want lava-chicken)"; remedy "provision 07-plymouth.sh"; }
+# The theme only DRAWS if graphical boot is enabled on the kernel cmdline (rhgb).
+# Without it, boot is a black screen until the greeter — theme set but never shown
+# (real-hardware finding). Fixable via rpm-ostree kargs (takes effect next boot).
+if [ -r /proc/cmdline ] && ! grep -qw rhgb /proc/cmdline; then
+  note "FAIL boot splash won't draw — kernel cmdline lacks 'rhgb' (dark boot until greeter)"
+  remedy "splash-karg"
+else
+  note "PASS graphical boot enabled (rhgb on cmdline)"
+fi
 if [ "$(readlink /etc/systemd/system/suspend.target 2>/dev/null)" = /dev/null ]; then
   note "PASS auto-suspend masked (always-on box)"
 else
@@ -137,7 +146,25 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
   fi
 done < <(getent passwd)
 
-# 9. context lines (never fail)
+# 9. login wallpaper — if the LaCOS login art is available (baked in /usr, or
+# staged in /var) the plasmalogin greeter should use it, not the stock Bazzite
+# background (real-hardware finding). Only assert when both plasmalogin AND the
+# art are present; otherwise there is nothing to enforce.
+login_art=""
+for a in /usr/share/lava-chicken/brand/lava_chicken_os_login.png \
+         /var/lib/lava-chicken/brand/lava_chicken_os_login.png; do
+  [ -f "$a" ] && { login_art="$a"; break; }
+done
+if [ -d /usr/lib/plasmalogin ] && [ -n "$login_art" ]; then
+  if grep -rqs "lava_chicken_os_login" /etc/plasmalogin.conf /etc/plasmalogin.conf.d 2>/dev/null; then
+    note "PASS login wallpaper set to the LaCOS art"
+  else
+    note "FAIL login screen using the stock wallpaper, not the LaCOS art"
+    remedy "login-wallpaper"
+  fi
+fi
+
+# 10. context lines (never fail)
 note "INFO boot mode: $(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?') · disk free: $(df -h /var 2>/dev/null | awk 'NR==2{print $4}')"
 
 # ── report ────────────────────────────────────────────────────────────────────
@@ -181,6 +208,21 @@ for r in "${todo[@]}"; do
     pull-models)         m="$PAY/bin/lacos-pull-models"; [ -x "$m" ] || m="$STATE/bin/lacos-pull-models"
                          echo "    pulling the configured model set (~5 GB; idempotent)…"
                          "$m" || rc=1 ;;
+    splash-karg)         if command -v rpm-ostree >/dev/null 2>&1; then
+                           if rpm-ostree kargs --append-if-missing=rhgb --append-if-missing=splash; then
+                             echo "    rhgb/splash added — REBOOT to see the boot splash"
+                           else
+                             echo "    rpm-ostree busy? release it:  sudo systemctl stop uupd.service  then re-run --fix"; rc=1
+                           fi
+                         else echo "    no rpm-ostree — add 'rhgb splash' to the kernel cmdline manually"; rc=1; fi ;;
+    login-wallpaper)     src=/usr/share/lava-chicken/brand/lava_chicken_os_login.png
+                         [ -f "$src" ] || src=/var/lib/lava-chicken/brand/lava_chicken_os_login.png
+                         dst=/var/lib/lava-chicken/brand/lava_chicken_os_login.png   # greeter-readable (/usr is immutable)
+                         install -D -m0644 "$src" "$dst" 2>/dev/null
+                         touch /etc/plasmalogin.conf
+                         sed -i "/# >>> lava-chicken login >>>/,/# <<< lava-chicken login <<</d" /etc/plasmalogin.conf 2>/dev/null || true
+                         printf '\n# >>> lava-chicken login >>>\n[Greeter]\nWallpaperPlugin=org.kde.image\n\n[Greeter][Wallpaper][org.kde.image][General]\nImage=file://%s\nPreviewImage=file://%s\n# <<< lava-chicken login <<<\n' "$dst" "$dst" >> /etc/plasmalogin.conf \
+                           && echo "    login wallpaper set — shows at the next login screen" || rc=1 ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

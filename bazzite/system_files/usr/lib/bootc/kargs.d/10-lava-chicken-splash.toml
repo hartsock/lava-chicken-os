@@ -1,0 +1,4 @@
+# Enable Fedora graphical boot so the lava-chicken plymouth splash actually draws
+# (without rhgb, boot is a black screen until the greeter). See lacos doctor's
+# "boot splash won't draw" check, which repairs an already-installed box.
+kargs = ["rhgb", "splash"]

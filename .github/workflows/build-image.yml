@@ -198,6 +198,11 @@ jobs:
             # needs (real hardware failed on its absence)
             need_x /usr/share/lava-chicken/provision/07-plymouth.sh
             need_f /usr/lib64/plymouth/script.so
+            # the theme only DRAWS if graphical boot (rhgb) is on the cmdline; the
+            # image must set it via bootc kargs.d or boot is dark till the greeter (#56)
+            need_f /usr/lib/bootc/kargs.d/10-lava-chicken-splash.toml
+            grep -q rhgb /usr/lib/bootc/kargs.d/10-lava-chicken-splash.toml \
+              || { echo "splash kargs.d missing rhgb"; fail=1; }
             # never idle-suspend (#33): sleep path must be masked in the image
             [ "$(readlink /etc/systemd/system/suspend.target 2>/dev/null)" = /dev/null ] \
               || { echo "suspend.target not masked"; fail=1; }

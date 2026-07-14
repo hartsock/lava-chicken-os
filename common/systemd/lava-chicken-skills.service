@@ -1,0 +1,18 @@
+[Unit]
+Description=LaCOS — sync bundled newt skills to all users (closes the upgrade gap)
+Documentation=https://github.com/hartsock/lava-chicken-os
+# Runs every boot, but lacos-sync-skills is a fast no-op unless the image version
+# changed since the last sync — so after a `bootc upgrade` new/updated skills
+# reach EXISTING users automatically, while a clean install is unaffected (its
+# first boot already seeds them via lava-chicken-firstboot).
+ConditionPathExists=/usr/share/lava-chicken/newt-skills
+# Order after first-boot provisioning so the kid accounts exist before we sync.
+After=lava-chicken-firstboot.service local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/share/lava-chicken/bin/lacos-sync-skills
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -67,12 +67,37 @@ fi
 # 4. newt + per-user agent kit (persona / skills for the invoking human)
 [ -x "$STATE/bin/newt" ] && note "PASS newt installed (shared)" \
   || { note "FAIL newt missing"; remedy "provision 50-nugget-agent.sh"; }
-H="${SUDO_USER:+/var/home/$SUDO_USER}"; H="${H:-${HOME:-/root}}"   # set -u safe: HOME may be unset
+# Resolve the invoking user's home from passwd (works on Bazzite /var/home AND
+# SteamOS /home; a hardcoded /var/home/$SUDO_USER false-fails on SteamOS).
+H="$(getent passwd "${SUDO_USER:-$(id -un)}" 2>/dev/null | cut -d: -f6)"; H="${H:-${HOME:-/root}}"
 if [ -f "$H/.newt/personas/nugget.md" ] && [ -d "$H/.newt/skills" ]; then
   note "PASS persona + skills present for $(basename "$H")"
 else
   note "FAIL persona/skills missing for $(basename "$H")"
   remedy "provision 45-nugget-tmux.sh"
+fi
+# 4b. bundled skills current for the invoking user? A bootc upgrade brings new
+# skills into the image; lava-chicken-skills.service re-syncs them to every user
+# on the next boot — flag both MISSING and STALE (older-image) skills here too,
+# and let --fix run the sync now via `sudo lacos doctor --fix`.
+if [ -d "$PAY/newt-skills" ] && [ -d "$H/.newt/skills" ]; then
+  miss=""
+  for sk in "$PAY"/newt-skills/*/; do
+    [ -f "${sk}SKILL.md" ] || continue
+    skn="$(basename "$sk")"
+    [ -d "$H/.newt/skills/$skn" ] || miss="$miss $skn"
+  done
+  imgver="$(cat /etc/lava-chicken/version 2>/dev/null || echo '?')"
+  usrver="$(cat "$H/.newt/skills/.lacos-skills-version" 2>/dev/null || echo none)"
+  if [ -n "${miss# }" ]; then
+    note "WARN $(basename "$H") missing bundled skills:$miss — 'sudo lacos doctor --fix'"
+    remedy "sync-skills"
+  elif [ "$usrver" != "$imgver" ]; then
+    note "WARN $(basename "$H") skills are from image $usrver (now $imgver) — 'sudo lacos doctor --fix'"
+    remedy "sync-skills"
+  else
+    note "PASS bundled skills current for $(basename "$H")"
+  fi
 fi
 
 # 5. splash + suspend + models
@@ -169,7 +194,9 @@ if [ "$FIX" != 1 ]; then
 fi
 
 # ── repair (--fix) ────────────────────────────────────────────────────────────
-[ "${fails:-0}" -eq 0 ] && { echo; echo "Nothing to fix. 🐔"; exit 0; }
+# Repair whenever any remedy was queued — a fixable WARN (e.g. stale bundled
+# skills) has no FAIL, so gate on the remedy list, not the FAIL count.
+[ "${#REMEDIES[@]}" -eq 0 ] && { echo; echo "Nothing to fix. 🐔"; exit 0; }
 echo; echo "── repairing ──"
 mapfile -t todo < <(printf '%s\n' "${REMEDIES[@]}" | awk '!seen[$0]++')
 rc=0
@@ -190,12 +217,20 @@ for r in "${todo[@]}"; do
                          gpasswd -d "$k" nugget-tui 2>/dev/null
                          echo "    revoked admin + resident-agent for $k (don't re-enable 'Administrator' in KDE Users)" ;;
     fix-steam-home\ *)   u="${r#fix-steam-home }"; h="$(getent passwd "$u" | cut -d: -f6)"
-                         # ONLY ~/.steam — never the whole home (subuid container storage).
-                         [ -n "$h" ] && [ -d "$h/.steam" ] && chown -R "$u" "$h/.steam" \
-                           && echo "    reclaimed $h/.steam for $u — relaunch Steam" || rc=1 ;;
+                         # ONLY ~/.steam, and never a symlink — a hijacked ~/.steam
+                         # -> /etc would let `chown -R` escape the home (don't rely on
+                         # coreutils' -P default). Never the whole home either (subuid
+                         # container storage lives under it).
+                         if [ -n "$h" ] && [ -d "$h/.steam" ] && [ ! -L "$h/.steam" ]; then
+                           chown -R "$u" "$h/.steam" && echo "    reclaimed $h/.steam for $u — relaunch Steam" || rc=1
+                         else
+                           echo "    skipped ~/.steam for $u (missing or a symlink)"; rc=1
+                         fi ;;
     pull-models)         m="$PAY/bin/lacos-pull-models"; [ -x "$m" ] || m="$STATE/bin/lacos-pull-models"
                          echo "    pulling the configured model set (~5 GB; idempotent)…"
                          "$m" || rc=1 ;;
+    sync-skills)         s="$PAY/bin/lacos-sync-skills"; [ -x "$s" ] || s="$STATE/bin/lacos-sync-skills"
+                         [ -x "$s" ] && { echo "    syncing bundled skills to all users…"; "$s" --force; } || rc=1 ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

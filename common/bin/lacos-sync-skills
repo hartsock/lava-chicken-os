@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# lacos-sync-skills — distribute LaCOS's bundled newt skills to /etc/skel and
+# every real user's ~/.newt/skills, so new/updated skills reach EXISTING users
+# after a `bootc upgrade` (first-boot 45-nugget-tmux.sh only seeds clean installs).
+#
+# SECURITY: the per-user copy runs AS THE TARGET USER via `runuser`, never as root
+# through a user-owned path. A kid who points ~/.newt at /etc therefore can't turn
+# this into a privilege escalation — the write just fails EPERM as themselves
+# (plus we pre-reject a symlinked/foreign-owned ~/.newt as defense-in-depth). Only
+# the /etc/skel copy runs as root, and /etc/skel is root-owned, not user-controlled.
+#
+# Each identity carries a `.lacos-skills-version` marker, so a user missed on one
+# boot (home not yet mounted, etc.) retries on the next boot instead of being
+# stranded until the next image bump, and skel-created accounts are recognized as
+# current. Idempotent. Managed (image) skills track the image and are refreshed on
+# a version change; a user's OWN skills (dirs absent from the payload) are NEVER
+# touched or deleted.
+#
+# Bazzite/bootc-only (lava-chicken-skills.service). SteamOS installs skills at
+# (re-)provision time (#13), not via this service — it reads the bootc image
+# payload under /usr/share, which SteamOS does not populate.
+#
+#   lacos-sync-skills            sync any identity whose marker != the image version
+#   lacos-sync-skills --force    re-sync everyone regardless of marker
+set -u
+SRC=/usr/share/lava-chicken/newt-skills            # bootc image payload
+VER="$(cat /etc/lava-chicken/version 2>/dev/null || echo unknown)"
+FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
+
+[ -d "$SRC" ] || { echo "lacos-sync-skills: no skills payload at $SRC — nothing to do"; exit 0; }
+[ "$(id -u)" = 0 ] || { echo "lacos-sync-skills: needs root (runs via the service, or 'sudo lacos doctor --fix')" >&2; exit 1; }
+
+# The copy body, run once per identity with POSIX sh. Positional args:
+#   $1 image version   $2 skills payload dir   $3 base home dir   $4 force(0/1)
+# Refreshes every bundled skill under $base/.newt/skills and stamps the marker.
+# Run as root for /etc/skel; run via `runuser -u USER` (the user's own privileges)
+# for a real home, so nothing here can escape the home as root.
+copy_body='
+ver=$1; src=$2; dest=$3/.newt/skills; force=$4
+marker=$dest/.lacos-skills-version
+[ "$force" = 1 ] || [ "$(cat "$marker" 2>/dev/null)" != "$ver" ] || exit 0
+install -d -m0755 "$dest" || exit 1
+for sk in "$src"/*/; do
+  [ -f "${sk}SKILL.md" ] || continue
+  skn=$(basename "$sk")
+  rm -rf "$dest/$skn" || exit 1
+  cp -a "${sk%/}" "$dest/$skn" || exit 1
+done
+printf "%s\n" "$ver" > "$marker"
+'
+
+# /etc/skel — root-owned, not user-controlled → running as root here is safe.
+sh -c "$copy_body" _ "$VER" "$SRC" /etc/skel "$FORCE" \
+  && echo "lacos-sync-skills: /etc/skel current for image $VER"
+
+# Each real user — the mutation runs AS THE USER (runuser), never as root.
+n=0
+while IFS=: read -r uname _ uid _ _ uhome _; do
+  [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -n "$uhome" ] && [ -d "$uhome" ] || continue
+  # defense-in-depth (the real guard is runuser): skip a home whose ~/.newt could
+  # redirect us — not owned by the user, or a symlink at ~/.newt or ~/.newt/skills.
+  [ "$(stat -c %U "$uhome" 2>/dev/null)" = "$uname" ] || { echo "lacos-sync-skills: skip $uname (home not owned by them)"; continue; }
+  [ -L "$uhome/.newt" ]        && { echo "lacos-sync-skills: skip $uname (~/.newt is a symlink)"; continue; }
+  [ -L "$uhome/.newt/skills" ] && { echo "lacos-sync-skills: skip $uname (~/.newt/skills is a symlink)"; continue; }
+  # A root-owned ~/.newt (a #55-class leaf-only chown) makes the runuser-as-user
+  # copy fail EPERM every boot — skip with an actionable fix, not a false "retry".
+  if [ -e "$uhome/.newt" ] && [ "$(stat -c %U "$uhome/.newt" 2>/dev/null)" != "$uname" ]; then
+    echo "lacos-sync-skills: skip $uname (~/.newt not owned by them — run: sudo chown -R $uname $uhome/.newt)"; continue
+  fi
+  if runuser -u "$uname" -- /bin/sh -c "$copy_body" _ "$VER" "$SRC" "$uhome" "$FORCE"; then
+    n=$((n + 1))
+  else
+    echo "lacos-sync-skills: sync failed for $uname (retries next boot)" >&2
+  fi
+done < <(getent passwd)
+
+echo "lacos-sync-skills: image $VER — $n user(s) current"

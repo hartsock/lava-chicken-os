@@ -15,6 +15,40 @@ find_bin() {  # locate a helper: baked (/usr/share) on Bazzite, /var on SteamOS
   command -v "$1" 2>/dev/null || return 1
 }
 
+# uupd (the auto-updater) can hold the rpm-ostree transaction lock ("System
+# transaction in progress"). Pause its timer + service around any real bootc
+# transaction (upgrade / mode / channel) so it can't re-grab the lock mid-switch;
+# re-arm the timer after so background auto-updates aren't left off.
+pause_autoupdate()  { echo "  (pausing the auto-updater so it doesn't clash)"; systemctl stop  uupd.timer uupd.service 2>/dev/null || true; }
+resume_autoupdate() { systemctl start uupd.timer 2>/dev/null || true; }
+
+# Parse the booted bootc image ref into "BASE VARIANT CHANNEL", e.g.
+#   ghcr.io/hartsock/lava-chicken-os stable unstable
+# variant = stable|deck (desktop|Game-Mode); channel is one of:
+#   unstable  bare :stable / :deck tag        (rolling; every merge)
+#   stable    :stable-release / :deck-release (moved only on a release)
+#   pinned    :stable-<ver> / :deck-<ver>     (an immutable release pin — DON'T move it silently)
+#   unknown   a ref we don't recognize (a fork's custom tag)
+# The variant is matched against a KNOWN SET, not string-stripped, so the immutable
+# :<variant>-<version> pins that release.yml creates are recognized as pins (not
+# misread as a bogus variant that `mode`/`channel` would then rewrite the box onto).
+box_ref() {
+  local img base tag variant channel
+  img="$(bootc status --format json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["booted"]["image"]["image"]["image"])' 2>/dev/null)" || return 1
+  [ -n "$img" ] || return 1
+  img="${img%%@*}"; base="${img%:*}"; tag="${img##*:}"
+  case "$tag" in
+    stable)         variant=stable; channel=unstable ;;
+    deck)           variant=deck;   channel=unstable ;;
+    stable-release) variant=stable; channel=stable ;;
+    deck-release)   variant=deck;   channel=stable ;;
+    stable-*)       variant=stable; channel=pinned ;;
+    deck-*)         variant=deck;   channel=pinned ;;
+    *)              variant="$tag"; channel=unknown ;;
+  esac
+  printf '%s %s %s\n' "$base" "$variant" "$channel"
+}
+
 usage() {
   cat <<EOF
 LaCOS $(ver) — Lava Chicken OS  🐔🌋
@@ -26,8 +60,12 @@ usage: lacos <command>
   agent <cmd>   pause|resume|disable|kill|status the agent (wraps nugget-agentctl)
   setup         run the 2nd-boot setup wizard (name, Tailscale, home DNS, ...)
   doctor        check the box end-to-end; 'sudo lacos doctor --fix' repairs
+  vr            wireless VR (ALVR): 'lacos vr doctor' checks it,
+                'sudo lacos vr setup' opens the ports the headset needs
   upgrade       fetch the latest OS: 'sudo lacos upgrade' stages it (reboot later),
                 --now stages + reboots, --check just looks
+  channel       show/switch update channel: 'sudo lacos channel stable|unstable'
+                (stable = tested releases only; unstable = every change from main)
   models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
   apps          install/refresh the creative + gaming Flatpak apps
   version       print the OS version
@@ -72,16 +110,32 @@ case "${1:-help}" in
     command -v bootc >/dev/null 2>&1       || { echo "mode switching needs the bootc-based (Bazzite) image; this box doesn't have bootc." >&2; exit 1; }
     if [ "$want" = "$cur" ]; then echo "Already in $wantname mode — nothing to do."; exit 0; fi
     [ "$(id -u)" = 0 ] || { echo "This needs admin rights — run:  sudo lacos mode $1"; exit 1; }
-    # Derive the image from what's booted so forks keep working; swap only the tag.
-    img="$(bootc status --format json 2>/dev/null       | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["status"]["booted"]["image"]["image"]["image"])' 2>/dev/null || true)"
-    [ -n "$img" ] || { echo "could not read the booted image from bootc status" >&2; exit 1; }
-    img="${img%%@*}"; base="${img%:*}"
-    echo "Switching to $wantname mode  ->  ${base}:${want}"
-    bootc switch "${base}:${want}"
-    echo
-    echo "Done. The new mode takes effect on the next restart:"
-    echo "  systemctl reboot        (or just use the power menu)"
-    echo "Changed your mind? 'sudo lacos mode ${curname%% *}' switches back the same way."
+    # Derive base + CURRENT CHANNEL from what's booted, so a forked registry keeps
+    # working AND switching variant preserves the channel (mode x channel compose:
+    # a stable-channel box stays on the stable channel across a mode switch).
+    ref="$(box_ref)" || { echo "could not read the booted image from bootc status" >&2; exit 1; }
+    read -r base _ channel <<<"$ref"
+    case "$channel" in
+      unstable) newtag="$want" ;;
+      stable)   newtag="${want}-release" ;;
+      *) echo "This box is pinned to a specific release, not a rolling channel, so I won't silently move it to a different image." >&2
+         echo "Pick a channel first, then switch mode:  sudo lacos channel unstable   (or: stable)" >&2
+         exit 1 ;;
+    esac
+    echo "Switching to $wantname mode  ->  ${base}:${newtag}"
+    pause_autoupdate
+    if bootc switch "${base}:${newtag}"; then
+      resume_autoupdate
+      echo
+      echo "Done. The new mode takes effect on the next restart:"
+      echo "  systemctl reboot        (or just use the power menu)"
+      echo "Changed your mind? 'sudo lacos mode ${curname%% *}' switches back the same way."
+      echo "(Restart before changing mode or channel again, so the switches don't stack.)"
+    else
+      resume_autoupdate
+      echo "Couldn't switch to ${base}:${newtag} — a transient network/registry error can cause this. Try again in a moment." >&2
+      exit 1
+    fi
     ;;
   attach)
     if a="$(find_bin attach-nugget)"; then exec "$a"
@@ -112,6 +166,11 @@ case "${1:-help}" in
     if d="$(find_bin lacos-doctor)"; then exec "$d" "$@"
     else echo "lacos-doctor not found" >&2; exit 1; fi
     ;;
+  vr)
+    shift
+    if v="$(find_bin lacos-vr)"; then exec "$v" "$@"
+    else echo "lacos-vr not found" >&2; exit 1; fi
+    ;;
   upgrade|update)
     # Parent-friendly wrapper around `bootc upgrade` — fetch the newest LaCOS
     # image without anyone needing to know bootc or uupd. Defaults to STAGE (no
@@ -120,12 +179,14 @@ case "${1:-help}" in
     shift; sub="${1:-}"
     command -v bootc >/dev/null 2>&1 || { echo "Upgrades need the bootc-based (Bazzite) image; this box doesn't have bootc." >&2; exit 1; }
     [ "$(id -u)" = 0 ] || { echo "Upgrades need admin rights — run:  sudo lacos upgrade${sub:+ $sub}"; exit 1; }
-    # uupd (the auto-updater) can hold the transaction lock ("System transaction in
-    # progress"). Pause BOTH its timer and service around a real upgrade so it
-    # can't re-grab the lock mid-download; re-arm the timer after so background
-    # auto-updates aren't left off. --check is read-only and never pauses it.
-    pause_autoupdate()  { echo "  (pausing the auto-updater so it doesn't clash)"; systemctl stop  uupd.timer uupd.service 2>/dev/null || true; }
-    resume_autoupdate() { systemctl start uupd.timer 2>/dev/null || true; }
+    ch="$(box_ref 2>/dev/null | awk '{print $3}')" || ch=""
+    case "$ch" in
+      unstable) echo "Channel: unstable (every change from main). Once the project cuts a tested release:  sudo lacos channel stable" ;;
+      stable)   echo "Channel: stable (tested releases only)." ;;
+      pinned)   echo "Channel: pinned to a specific release — upgrades won't move it. Follow a channel again:  sudo lacos channel stable   (or: unstable)" ;;
+    esac
+    # pause_autoupdate/resume_autoupdate are defined near the top (shared with
+    # mode/channel). --check is read-only and never pauses the auto-updater.
     reboot_hint() {
       echo "Downloaded — it takes effect on the NEXT restart. Reboot when no one is mid-game:"
       echo "  systemctl reboot        (or the power menu; or:  sudo lacos upgrade --now)"
@@ -158,6 +219,48 @@ case "${1:-help}" in
         ;;
       *) echo "usage: sudo lacos upgrade [--check | --now]   (no flag = download now, reboot later)" >&2; exit 2 ;;
     esac
+    ;;
+  channel)
+    # A channel = which image ref the box tracks. unstable = the continuous
+    # :stable/:deck tags (every merge); stable = :stable-release/:deck-release,
+    # moved only when a GitHub release is cut. `lacos upgrade` tracks whatever ref
+    # we're on, so switching channel is a one-time `bootc switch`, like `mode`.
+    shift
+    command -v bootc >/dev/null 2>&1 || { echo "Channels need the bootc-based (Bazzite) image; this box doesn't have bootc." >&2; exit 1; }
+    # Read-only "which channel?" must work even if bootc status hiccups.
+    if ref="$(box_ref)"; then read -r base variant cur <<<"$ref"; else base=""; variant=""; cur=unknown; fi
+    if [ $# -eq 0 ]; then
+      echo "Current channel: $cur"
+      echo "  stable   — only tested, released versions (recommended for the family box)"
+      echo "  unstable — every change straight from main (bleeding edge)"
+      [ "$cur" = pinned ] && echo "  (pinned to a specific release right now; switching picks up a rolling channel again)"
+      echo "Switch with:  sudo lacos channel stable      (or: unstable)"
+      exit 0
+    fi
+    [ -n "$base" ] || { echo "could not read the booted image from bootc status — can't switch channel" >&2; exit 1; }
+    [ "$cur" = unknown ] && { echo "I don't recognize this box's image ref, so I won't guess a channel for it." >&2; exit 1; }
+    case "$1" in
+      stable)             want=stable;   newtag="${variant}-release";;
+      unstable|edge|main) want=unstable; newtag="${variant}";;
+      *) echo "unknown channel '$1' — use: stable or unstable" >&2; exit 2;;
+    esac
+    if [ "$want" = "$cur" ]; then echo "Already on the $want channel — nothing to do."; exit 0; fi
+    [ "$(id -u)" = 0 ] || { echo "This needs admin rights — run:  sudo lacos channel $1"; exit 1; }
+    echo "Switching to the $want channel  ->  ${base}:${newtag}"
+    pause_autoupdate
+    if bootc switch "${base}:${newtag}"; then
+      resume_autoupdate
+      echo
+      echo "Done. From now on 'lacos upgrade' pulls $want images. Takes effect on the next restart:"
+      echo "  systemctl reboot        (or:  sudo lacos upgrade --now)"
+      case "$cur" in stable|unstable) echo "Changed your mind? 'sudo lacos channel $cur' switches back.";; esac
+      echo "(Restart before changing mode or channel again, so the switches don't stack.)"
+    else
+      resume_autoupdate
+      echo "Couldn't switch to ${base}:${newtag}." >&2
+      [ "$want" = stable ] && echo "The stable channel may have no release yet — check the project's Releases page, then try again." >&2
+      exit 1
+    fi
     ;;
   version) ver ;;
   help|-h|--help) usage ;;

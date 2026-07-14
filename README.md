@@ -17,6 +17,8 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 > **👨‍👩‍👧‍👦 Parents: start here → [INSTALL.md](INSTALL.md)** — how to set this up
 > for your kids, in plain English: keep Windows or go all-in, make the USB
 > stick from your Mac (or Windows), and what the AI helper will and won't do.
+> Already running? **[UPGRADING.md](UPGRADING.md)** — how to keep it updated
+> (and roll back if an update ever misbehaves).
 
 > ⚠️ Only do this to an old computer that's headed for the trash — this process might turn it into a paperweight. But if you've got an old junker collecting dust, this can breathe a few more years of life into it. No warranty, no take-backs. Back up anything you care about first.
 
@@ -34,7 +36,11 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 - **[newt-agent](https://github.com/Gilamonster-Foundation/newt-agent)** —
   small, fast, local-first agentic coder, pointed at your local ollama
 - **Minecraft Java Edition mod toolchain** — JDK 21, Gradle (via SDKMAN),
-  Fabric + NeoForge templates, IntelliJ IDEA CE + Prism Launcher (Flatpak)
+  Fabric + NeoForge templates, IntelliJ IDEA CE + Prism Launcher (Flatpak); Nugget
+  has a **`modding`** skill that coaches a kid from first mod to writing their own
+- **Wireless VR** — `lacos vr doctor` / `sudo lacos vr setup` open just the two
+  ports ALVR needs (9943-9944), not the "open everything" hack; Nugget's
+  **`vr-setup`** skill walks through SteamVR + ALVR (or the easier WiVRn) to a Quest
 - **Nugget boot splash** — a Plymouth theme with the mascot and *Lava Chicken OS*
 - **Nugget, your resident agent** — a dedicated on-box account running
   [newt-agent](https://github.com/Gilamonster-Foundation/newt-agent) in a
@@ -43,6 +49,45 @@ with <b>Nugget</b>, a resident AI agent living on the box.
   Sunshine/Moonlight game streaming, ready from first boot
 - **Bootc image** — Bazzite builds in GitHub Actions → GHCR with an install ISO;
   SteamOS gets the same setup via `bootstrap.sh`
+
+## Will it run on your PC? (hardware)
+
+LaCOS is for old hardware headed for the recycling pile, so the honest yardstick
+is **the reference machine it's built and tested on — "Nugget":**
+
+| Part | Nugget — the reference machine (verified working) |
+|---|---|
+| **CPU** | Intel Core i7-4790 — 4-core / 8-thread, 2014-era Haswell (any 64-bit x86) |
+| **RAM** | 16 GB |
+| **GPU** | AMD Radeon RX 580 (Polaris, Vulkan via RADV) |
+| **Storage** | 512 GB SSD |
+| **Firmware** | UEFI — **no TPM** (yes, the PCs Windows 11 rejects) |
+| **Network** | Gigabit Ethernet (no Wi-Fi) |
+| **Ports** | USB 3.0 |
+
+**If your machine is in that ballpark or better, LaCOS runs.** Concretely:
+
+**Minimum**
+- **64-bit x86 CPU**, ~4 cores, roughly 2013 (Haswell / AMD equivalent) or newer.
+- **16 GB RAM.** This is the real floor, not a suggestion: the on-box AI's 7B
+  model wants ~6–8 GB *on top of* the desktop and a running game. 8 GB will boot
+  but the AI will crawl and swap.
+- A **Vulkan-capable GPU**. **AMD is the smooth path** (RX 580 and up work out of
+  the box); NVIDIA works on the Bazzite base only.
+- A **256 GB SSD or larger.** An SSD, not a spinning disk — the OS image, the AI
+  models (~5 GB), and games need the speed and the room.
+- **UEFI firmware. No TPM required** — that's rather the point.
+
+**Recommended / good to know**
+- More RAM (32 GB) and more cores make the **local AI** noticeably snappier — it
+  runs on the **CPU** on Polaris-class cards. A ROCm-capable AMD GPU (RDNA or
+  newer) accelerates it a lot.
+- Keep the box on **wired Ethernet** — also ideal when it's the VR streaming host.
+- A **USB 3 port** for the install stick and wired VR headsets.
+- **Game Mode (`:deck`) black-screens on Polaris GPUs (RX 5xx)** today
+  ([#38](https://github.com/hartsock/lava-chicken-os/issues/38)) — use the desktop
+  `:stable` variant with Steam Big Picture on those cards.
+- NVIDIA GPUs are supported on the **Bazzite** base, not SteamOS.
 
 ## ⚠️ Read this before touching a USB stick
 

@@ -76,7 +76,8 @@ else
 fi
 # 4b. bundled skills current for the invoking user? A bootc upgrade brings new
 # skills into the image; lava-chicken-skills.service re-syncs them to every user
-# on the next boot. Flag a mismatch here too — non-fatal, it self-heals.
+# on the next boot — flag both MISSING and STALE (older-image) skills here too,
+# and let --fix run the sync now via `sudo lacos doctor --fix`.
 if [ -d "$PAY/newt-skills" ] && [ -d "$H/.newt/skills" ]; then
   miss=""
   for sk in "$PAY"/newt-skills/*/; do
@@ -84,9 +85,17 @@ if [ -d "$PAY/newt-skills" ] && [ -d "$H/.newt/skills" ]; then
     skn="$(basename "$sk")"
     [ -d "$H/.newt/skills/$skn" ] || miss="$miss $skn"
   done
-  [ -n "${miss# }" ] \
-    && note "WARN $(basename "$H") missing bundled skills:$miss — re-added next boot, or now: sudo lacos-sync-skills --force" \
-    || note "PASS bundled skills current for $(basename "$H")"
+  imgver="$(cat /etc/lava-chicken/version 2>/dev/null || echo '?')"
+  usrver="$(cat "$H/.newt/skills/.lacos-skills-version" 2>/dev/null || echo none)"
+  if [ -n "${miss# }" ]; then
+    note "WARN $(basename "$H") missing bundled skills:$miss — 'sudo lacos doctor --fix'"
+    remedy "sync-skills"
+  elif [ "$usrver" != "$imgver" ]; then
+    note "WARN $(basename "$H") skills are from image $usrver (now $imgver) — 'sudo lacos doctor --fix'"
+    remedy "sync-skills"
+  else
+    note "PASS bundled skills current for $(basename "$H")"
+  fi
 fi
 
 # 5. splash + suspend + models
@@ -168,7 +177,9 @@ if [ "$FIX" != 1 ]; then
 fi
 
 # ── repair (--fix) ────────────────────────────────────────────────────────────
-[ "${fails:-0}" -eq 0 ] && { echo; echo "Nothing to fix. 🐔"; exit 0; }
+# Repair whenever any remedy was queued — a fixable WARN (e.g. stale bundled
+# skills) has no FAIL, so gate on the remedy list, not the FAIL count.
+[ "${#REMEDIES[@]}" -eq 0 ] && { echo; echo "Nothing to fix. 🐔"; exit 0; }
 echo; echo "── repairing ──"
 mapfile -t todo < <(printf '%s\n' "${REMEDIES[@]}" | awk '!seen[$0]++')
 rc=0
@@ -195,6 +206,8 @@ for r in "${todo[@]}"; do
     pull-models)         m="$PAY/bin/lacos-pull-models"; [ -x "$m" ] || m="$STATE/bin/lacos-pull-models"
                          echo "    pulling the configured model set (~5 GB; idempotent)…"
                          "$m" || rc=1 ;;
+    sync-skills)         s="$PAY/bin/lacos-sync-skills"; [ -x "$s" ] || s="$STATE/bin/lacos-sync-skills"
+                         [ -x "$s" ] && { echo "    syncing bundled skills to all users…"; "$s" --force; } || rc=1 ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

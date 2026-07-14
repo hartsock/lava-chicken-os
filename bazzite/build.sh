@@ -106,10 +106,14 @@ install -D -m0644 "$PAY/autostart/lava-chicken-wallpaper.desktop" /etc/skel/.con
 LOGIN_IMG="$PAY/brand/lava_chicken_os_login.png"
 PLD=/usr/lib/plasmalogin/defaults.conf
 if [ -r "$LOGIN_IMG" ] && [ -f "$PLD" ]; then
+  # plasmalogin's plugin selector key is WallpaperPluginId (NOT WallpaperPlugin —
+  # that typo is silently ignored, leaving the default background). file:// + an
+  # absolute path yields the required three slashes.
+  sed -i "s|^WallpaperPlugin=|WallpaperPluginId=|" "$PLD" 2>/dev/null || true
   if grep -q '^Image=file://' "$PLD"; then
     sed -i "s|^Image=file://.*|Image=file://$LOGIN_IMG|; s|^PreviewImage=file://.*|PreviewImage=file://$LOGIN_IMG|" "$PLD"
   else
-    printf '\n[Greeter]\nWallpaperPlugin=org.kde.image\n\n[Greeter][Wallpaper][org.kde.image][General]\nImage=file://%s\nPreviewImage=file://%s\n' \
+    printf '\n[Greeter]\nWallpaperPluginId=org.kde.image\n\n[Greeter][Wallpaper][org.kde.image][General]\nImage=file://%s\nPreviewImage=file://%s\n' \
       "$LOGIN_IMG" "$LOGIN_IMG" >> "$PLD"
   fi
   echo "[lava-chicken build] plasma-login background -> $LOGIN_IMG"

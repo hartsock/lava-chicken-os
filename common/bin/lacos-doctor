@@ -104,6 +104,15 @@ fi
 theme="$(plymouth-set-default-theme 2>/dev/null || echo none)"
 [ "$theme" = lava-chicken ] && note "PASS boot splash theme set" \
   || { note "FAIL boot splash theme is '$theme' (want lava-chicken)"; remedy "provision 07-plymouth.sh"; }
+# The theme only DRAWS if graphical boot is on the kernel cmdline (rhgb). Without
+# it, boot is a black screen until the greeter (real-hardware finding). Fixable
+# via rpm-ostree kargs (takes effect next boot).
+if [ -r /proc/cmdline ] && ! grep -qw rhgb /proc/cmdline; then
+  note "FAIL boot splash won't draw — kernel cmdline lacks 'rhgb' (dark boot until greeter)"
+  remedy "splash-karg"
+else
+  note "PASS graphical boot enabled (rhgb on cmdline)"
+fi
 if [ "$(readlink /etc/systemd/system/suspend.target 2>/dev/null)" = /dev/null ]; then
   note "PASS auto-suspend masked (always-on box)"
 else
@@ -177,6 +186,25 @@ if systemctl is-active firewalld >/dev/null 2>&1; then
   fi
 fi
 
+# 8c. login wallpaper — plasmalogin should show the LaCOS art, not the stock
+# Bazzite background. The plugin selector key is WallpaperPluginId (the older
+# WallpaperPlugin typo is SILENTLY ignored — the real reason it never showed).
+# Only assert when plasmalogin AND the art are present.
+login_art=""
+for a in /usr/share/lava-chicken/brand/lava_chicken_os_login.png \
+         /var/lib/lava-chicken/brand/lava_chicken_os_login.png; do
+  [ -f "$a" ] && { login_art="$a"; break; }
+done
+if [ -d /usr/lib/plasmalogin ] && [ -n "$login_art" ]; then
+  if grep -qs 'WallpaperPluginId=org.kde.image' /etc/plasmalogin.conf 2>/dev/null \
+     && grep -qs 'lava_chicken_os_login' /etc/plasmalogin.conf 2>/dev/null; then
+    note "PASS login wallpaper set to the LaCOS art"
+  else
+    note "FAIL login screen not using the LaCOS art (missing, or the old WallpaperPlugin typo)"
+    remedy "login-wallpaper"
+  fi
+fi
+
 # 9. context lines (never fail)
 note "INFO boot mode: $(cat /usr/share/lava-chicken/variant 2>/dev/null || echo '?') · disk free: $(df -h /var 2>/dev/null | awk 'NR==2{print $4}')"
 
@@ -231,6 +259,26 @@ for r in "${todo[@]}"; do
                          "$m" || rc=1 ;;
     sync-skills)         s="$PAY/bin/lacos-sync-skills"; [ -x "$s" ] || s="$STATE/bin/lacos-sync-skills"
                          [ -x "$s" ] && { echo "    syncing bundled skills to all users…"; "$s" --force; } || rc=1 ;;
+    splash-karg)         if command -v rpm-ostree >/dev/null 2>&1; then
+                           if rpm-ostree kargs --append-if-missing=rhgb --append-if-missing=splash; then
+                             echo "    rhgb/splash added — REBOOT to see the boot splash"
+                           else
+                             echo "    rpm-ostree busy? release it:  sudo systemctl stop uupd.service  then re-run --fix"; rc=1
+                           fi
+                         else echo "    no rpm-ostree — add 'rhgb splash' to the kernel cmdline manually"; rc=1; fi ;;
+    login-wallpaper)     src=/usr/share/lava-chicken/brand/lava_chicken_os_login.png
+                         [ -f "$src" ] || src=/var/lib/lava-chicken/brand/lava_chicken_os_login.png
+                         dst=/var/lib/lava-chicken/brand/lava_chicken_os_login.png   # greeter-readable (/usr is immutable)
+                         install -D -m0644 "$src" "$dst" 2>/dev/null
+                         # SELinux: the confined greeter user must be able to read it
+                         command -v restorecon >/dev/null 2>&1 && restorecon -R /var/lib/lava-chicken/brand 2>/dev/null
+                         touch /etc/plasmalogin.conf
+                         # fix the WallpaperPlugin -> WallpaperPluginId typo in place (the silent-ignore bug)
+                         sed -i "s/^WallpaperPlugin=/WallpaperPluginId=/" /etc/plasmalogin.conf 2>/dev/null || true
+                         if ! grep -q "lava_chicken_os_login" /etc/plasmalogin.conf 2>/dev/null; then
+                           printf '\n# >>> lava-chicken login >>>\n[Greeter]\nWallpaperPluginId=org.kde.image\n\n[Greeter][Wallpaper][org.kde.image][General]\nImage=file://%s\nPreviewImage=file://%s\n# <<< lava-chicken login <<<\n' "$dst" "$dst" >> /etc/plasmalogin.conf || rc=1
+                         fi
+                         echo "    login wallpaper set — apply with:  sudo systemctl restart plasmalogin  (kicks the greeter; or it shows on the next reboot)" ;;
     hint-bootc-upgrade)  echo "    ollama arrives baked with:  sudo bootc upgrade && systemctl reboot" ;;
   esac
 done

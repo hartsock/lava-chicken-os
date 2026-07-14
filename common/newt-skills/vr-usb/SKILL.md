@@ -49,9 +49,13 @@ setup.
 
 ## The KID steps
 
-1. **Use a real DATA cable.** The one that came with the headset, or one labeled
-   "USB 3" / "data." **A charge-only cable will not work** — this is the #1 reason
-   it fails. Plug into a blue USB-3 port if there is one.
+1. **Use a DATA cable — mind the catch.** Many USB cables are **charge-only**
+   (power but no data), and a charge-only cable **will not work** — it's the #1
+   reason wired VR fails. Use the cable that came with the headset, or one labeled
+   **"USB 3" / "data."** Best of all for VR is a **"Y" cable (dual data + power)**:
+   one leg sends data to the PC while the other takes **wall power**, so the
+   headset keeps charging during long sessions instead of slowly draining on the
+   PC port alone. Plug the *data* end into a blue USB-3 port if there is one.
 2. **Put the headset ON.** A popup appears *inside the headset*: **"Allow USB
    debugging?"** Check **"Always allow from this computer"** and tap **Allow**.
    (Don't see it? Unplug, replug, look again with the headset on.)
@@ -85,7 +89,8 @@ a Homebrew cask that Homebrew-on-Linux often refuses — not a safe default.
 
 | Symptom | Fix |
 |---|---|
-| Wired toggle sees nothing / `adb devices` empty | **The cable.** Use a real USB-3 *data* cable. Then check the in-headset "Allow" popup. |
+| Wired toggle sees nothing / `adb devices` empty | **The cable** — most are charge-only. Use a USB-3 *data* cable (or a data+power "Y" cable). Then check the in-headset "Allow" popup. |
+| Headset battery drains even while plugged in | Normal on PC-port power alone during heavy VR — use a **data+power "Y" cable** so the other leg feeds wall power. |
 | Device shows "unauthorized" / "no permissions" | The udev rule (grown-up step 2), then replug and tap **Allow** in the headset. |
 | Connects, but the headset view is **black** | Known **Bazzite + ALVR** issue (the flatpak is experimental; a SteamVR-on-Linux driver bug) — it can black-screen even with everything green. Set the codec to **H.264** (RX 500-series), and see ALVR's Linux troubleshooting wiki (SteamVR launch options). Not always leftover wizard items. |
 | Client won't connect at all | Version mismatch — install the headset app **and** the PC streamer from the **same** github.com/alvr-org/ALVR release. |

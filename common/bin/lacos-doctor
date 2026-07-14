@@ -74,6 +74,20 @@ else
   note "FAIL persona/skills missing for $(basename "$H")"
   remedy "provision 45-nugget-tmux.sh"
 fi
+# 4b. bundled skills current for the invoking user? A bootc upgrade brings new
+# skills into the image; lava-chicken-skills.service re-syncs them to every user
+# on the next boot. Flag a mismatch here too — non-fatal, it self-heals.
+if [ -d "$PAY/newt-skills" ] && [ -d "$H/.newt/skills" ]; then
+  miss=""
+  for sk in "$PAY"/newt-skills/*/; do
+    [ -f "${sk}SKILL.md" ] || continue
+    skn="$(basename "$sk")"
+    [ -d "$H/.newt/skills/$skn" ] || miss="$miss $skn"
+  done
+  [ -n "${miss# }" ] \
+    && note "WARN $(basename "$H") missing bundled skills:$miss — re-added next boot, or now: sudo lacos-sync-skills --force" \
+    || note "PASS bundled skills current for $(basename "$H")"
+fi
 
 # 5. splash + suspend + models
 theme="$(plymouth-set-default-theme 2>/dev/null || echo none)"

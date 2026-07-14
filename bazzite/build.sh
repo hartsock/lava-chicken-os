@@ -115,7 +115,7 @@ if [ -r "$LOGIN_IMG" ] && [ -f "$PLD" ]; then
   echo "[lava-chicken build] plasma-login background -> $LOGIN_IMG"
 fi
 for u in lava-chicken-boot-sound.service nugget-agent-tmux.service nugget-agent-grant@.service \
-         lava-chicken-models.service lava-chicken-apps.service; do
+         lava-chicken-models.service lava-chicken-apps.service lava-chicken-skills.service; do
   install -D -m0644 "$PAY/systemd/$u" "/usr/lib/systemd/system/$u"
 done
 
@@ -126,7 +126,8 @@ done
 systemctl enable sshd.service
 systemctl enable lava-chicken-firstboot.service
 systemctl preset lava-chicken-boot-sound.service nugget-agent-tmux.service \
-  lava-chicken-models.service lava-chicken-apps.service ollama.service 2>/dev/null || true
+  lava-chicken-models.service lava-chicken-apps.service lava-chicken-skills.service \
+  ollama.service 2>/dev/null || true
 
 # --- never idle-suspend (#33): this is an always-on console/streamer/agent box.
 # KDE default idle-suspend put a real box to SLEEP mid-provisioning and would

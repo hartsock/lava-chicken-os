@@ -141,9 +141,18 @@ jobs:
             need_x /usr/bin/nugget-agentctl
             # system units that must be baked in
             for u in lava-chicken-firstboot lava-chicken-boot-sound nugget-agent-tmux \
-                     lava-chicken-models lava-chicken-apps; do
+                     lava-chicken-models lava-chicken-apps lava-chicken-skills; do
               need_f "/usr/lib/systemd/system/${u}.service"
             done
+            # skill-sync helper + its unit is enabled by the preset (closes the
+            # upgrade gap: new image skills reach existing users on the next boot)
+            need_x /usr/share/lava-chicken/bin/lacos-sync-skills
+            grep -q "^enable lava-chicken-skills.service" \
+              /usr/lib/systemd/system-preset/80-lava-chicken.preset \
+              || { echo "lava-chicken-skills.service not enabled in the preset"; fail=1; }
+            # it must actually run + seed /etc/skel with the bundled skills
+            /usr/share/lava-chicken/bin/lacos-sync-skills --force >/dev/null 2>&1
+            need_f /etc/skel/.newt/skills/youtube-prep/SKILL.md
             # account seed + agent persona + branded payload
             need_f /usr/lib/sysusers.d/nugget.conf
             need_f /usr/share/lava-chicken/persona/nugget-persona.md

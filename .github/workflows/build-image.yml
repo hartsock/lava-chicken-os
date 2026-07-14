@@ -116,8 +116,14 @@ jobs:
             /usr/bin/lacos help 2>/dev/null | grep -q "^  vr " \
               || { echo "lacos is missing the vr command"; fail=1; }
             need_x /usr/share/lava-chicken/bin/lacos-vr
+            need_f /usr/share/lava-chicken/vr/ports.env
             /usr/bin/lacos vr help 2>/dev/null | grep -q "wireless VR" \
               || { echo "lacos vr help broken or helper missing"; fail=1; }
+            # the VR fix must never reload the firewall (a reload can drop ssh on
+            # a runtime-only box and lock everyone out) — guard the invariant by
+            # checking non-comment lines only for an actual --reload flag
+            grep -vE "^[[:space:]]*#" /usr/share/lava-chicken/bin/lacos-vr | grep -q -- "--reload" \
+              && { echo "lacos-vr must not call firewall-cmd --reload (ssh lockout risk)"; fail=1; } || true
             need_x /usr/bin/nugget
             # nugget launcher wears the real mascot, not a stock icon (#40)
             need_f /usr/share/icons/hicolor/256x256/apps/nugget.png
@@ -156,8 +162,9 @@ jobs:
             # bundled newt skills (#19) must ship in the payload
             need_f /usr/share/lava-chicken/newt-skills/youtube-prep/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/video-edit/SKILL.md
-            # kid skills: wireless VR + Minecraft modding
+            # kid skills: wireless VR + wired (USB) VR + Minecraft modding
             need_f /usr/share/lava-chicken/newt-skills/vr-setup/SKILL.md
+            need_f /usr/share/lava-chicken/newt-skills/vr-usb/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/modding/SKILL.md
             # seeded newt config must ship and point at the CHAT model, never the
             # embedding model (newt-agent#1116).

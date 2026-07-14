@@ -1,85 +1,121 @@
 #!/usr/bin/env bash
 # lacos vr — get wireless VR (ALVR) working on the box, safely.
 #
-#   lacos vr doctor             check the VR firewall + readiness (safe, no sudo)
-#   sudo lacos vr doctor --fix  repair the firewall: minimal ALVR ports, permanent,
-#                               and clear any "open everything" hack
+#   lacos vr doctor             check the VR firewall + readiness (safe, no admin)
+#   sudo lacos vr doctor --fix  repair the firewall: LAN-scoped ALVR rules, and
+#                               clear any "open everything" hack
 #   sudo lacos vr setup         do the firewall fix, then print the kid's next steps
 #   lacos vr help
 #
-# ALVR streams PC VR to a wireless headset (a Meta Quest). On Linux the streamer
-# needs exactly two ports reachable — firewalld ships an `alvr` service covering
-# 9943-9944 tcp+udp — and NOT the "open all the ports" hack kids reach for when
-# the headset won't connect. This makes the rule minimal AND permanent (survives
-# reboot), and tidies up the blanket-open hack if it's there. The kid coaching
-# (install ALVR, pair the headset, tune the picture) lives in the `vr-setup`
-# nugget skill — ask nugget "help me set up VR". This command owns only the one
-# privileged bit: the firewall.
+# ALVR streams PC VR to a wireless headset (a Meta Quest). The streamer needs two
+# ports reachable — 9943-9944 (tcp+udp) — from the LAN. We open them the same way
+# LaCOS opens Sunshine (see common/sunshine): source-scoped firewalld RICH RULES
+# limited to the private RFC1918 ranges, NOT the whole internet and NOT the
+# "open all the ports" hack kids reach for. Scoping to /16+/12+/8 also means a
+# Wi-Fi/subnet move (192.168.1.x -> 192.168.0.x) needs no change.
+#
+# SAFETY: this command NEVER runs `firewall-cmd --reload`. A reload rewrites the
+# live firewall from the *permanent* config, and on a box whose config is
+# runtime-only (ssh included) that would drop ssh and lock everyone out. We change
+# the runtime AND permanent state directly instead, and tell the human how to save
+# the whole firewall if it isn't saved yet.
 set -u
+PAY=/usr/share/lava-chicken
+STATE=/var/lib/lava-chicken
 ALVR_FLATPAK=com.valvesoftware.Steam.Utility.alvr
 FW=firewall-cmd
 
+# ports.env is the single source of truth; fall back to compiled defaults so the
+# command still works if the payload is missing (SteamOS staging, old image).
+ALVR_PORT_RANGE="9943-9944"
+ALVR_ALLOW_CIDRS="192.168.0.0/16 10.0.0.0/8 172.16.0.0/12"
+for f in "$PAY/vr/ports.env" "$STATE/vr/ports.env"; do [ -r "$f" ] && . "$f" && break; done
+
 # ── read-only firewalld probes (all work as a normal user) ──────────────────────
-fw_running()        { systemctl is-active firewalld >/dev/null 2>&1; }
-alvr_service_known(){ $FW --get-services 2>/dev/null | tr ' ' '\n' | grep -qx alvr; }
-alvr_permanent()   { $FW --permanent --list-services 2>/dev/null | tr ' ' '\n' | grep -qx alvr; }
-ports_permanent()  { $FW --permanent --list-ports 2>/dev/null | grep -qE '(^| )9943-9944/(tcp|udp)'; }
-# a "blanket open" = a suspiciously huge contiguous range (the kid hack: 1025-65535).
-# List them from BOTH runtime and permanent config, deduped.
+fw_running() { systemctl is-active firewalld >/dev/null 2>&1; }
+# every rich rule (runtime + permanent), deduped
+all_rich()   { { $FW --list-rich-rules 2>/dev/null; $FW --permanent --list-rich-rules 2>/dev/null; } | sort -u; }
+# ALVR reachable via a SCOPED rich rule (rule mentions 9943 or 9944)
+alvr_scoped(){ all_rich | grep -qE '(9943|9944)'; }
+# ALVR reachable the BROAD way: the alvr service, or bare 9943/9944 ports, open to ALL sources
+alvr_broad() {
+  { $FW --list-services 2>/dev/null; $FW --permanent --list-services 2>/dev/null; } | tr ' ' '\n' | grep -qx alvr && return 0
+  { $FW --list-ports 2>/dev/null; $FW --permanent --list-ports 2>/dev/null; } | tr ' ' '\n' | grep -qE '^(9943|9944|9943-9944)/(tcp|udp)$'
+}
+# a "blanket open" = a suspiciously huge contiguous range (the kid hack: 1025-65535)
 blanket_ports() {
   { $FW --list-ports 2>/dev/null; $FW --permanent --list-ports 2>/dev/null; } \
     | tr ' ' '\n' | grep -E '^[0-9]+-[0-9]+/(tcp|udp)$' \
     | awk -F'[-/]' '($2 - $1) >= 1000 { print $0 }' | sort -u
 }
+# is the firewall SAVED? nothing in the permanent config == it all resets on reboot
+config_unsaved() {
+  [ -z "$($FW --permanent --list-services 2>/dev/null | tr -d ' ')" ] \
+    && [ -z "$($FW --permanent --list-ports 2>/dev/null | tr -d ' ')" ] \
+    && [ -z "$($FW --permanent --list-rich-rules 2>/dev/null)" ]
+}
 
-# ── the one privileged action: make the VR firewall minimal + permanent ─────────
+# ── the privileged action: LAN-scoped ALVR rules, minus the crude open rules ────
+# Applies to BOTH runtime and permanent, and does NOT reload (see SAFETY above).
 fix_firewall() {
   [ "$(id -u)" = 0 ] || { echo "This changes the firewall, so it needs admin rights — run:  sudo lacos vr setup" >&2; return 1; }
-  local rc=0
+  local rc=0 cidr proto rule p scope
   fw_running || { echo "  starting firewalld…"; systemctl enable --now firewalld || rc=1; }
-  # Prefer the shipped `alvr` service (self-documenting); fall back to raw ports
-  # on an older firewalld that doesn't carry alvr.xml yet.
-  if alvr_service_known; then
-    echo "  opening the ALVR service (9943-9944, permanent)…"
-    $FW --permanent --add-service=alvr >/dev/null || rc=1
-  else
-    echo "  opening ports 9943-9944 tcp+udp (permanent)…"
-    $FW --permanent --add-port=9943-9944/tcp >/dev/null || rc=1
-    $FW --permanent --add-port=9943-9944/udp >/dev/null || rc=1
-  fi
-  # Remove any permanent blanket-open range (the reload below drops runtime ones).
-  local p
-  for p in $($FW --permanent --list-ports 2>/dev/null | tr ' ' '\n' \
-             | grep -E '^[0-9]+-[0-9]+/(tcp|udp)$' | awk -F'[-/]' '($2-$1)>=1000{print $0}'); do
-    echo "  clearing the wide-open hack: $p"
-    $FW --permanent --remove-port="$p" >/dev/null || rc=1
+
+  echo "  opening ALVR ($ALVR_PORT_RANGE) to your LAN only ($ALVR_ALLOW_CIDRS)…"
+  for cidr in $ALVR_ALLOW_CIDRS; do
+    for proto in tcp udp; do
+      rule="rule family=ipv4 source address=$cidr port port=$ALVR_PORT_RANGE protocol=$proto accept"
+      $FW           --add-rich-rule "$rule" >/dev/null 2>&1 || true   # live now
+      $FW --permanent --add-rich-rule "$rule" >/dev/null 2>&1 || true   # survive reboot
+    done
   done
-  echo "  reloading firewalld (applies the ALVR rule, drops any runtime open-everything hack)…"
-  $FW --reload >/dev/null || rc=1
+
+  # Retire the crude open rules that the scoped rules replace: the all-source alvr
+  # service, bare 9943/9944 ports, and any blanket-open range. Runtime + permanent.
+  for scope in "" "--permanent"; do
+    $FW $scope --remove-service=alvr >/dev/null 2>&1 || true
+    for p in "9943-9944/tcp" "9943-9944/udp" "9943/tcp" "9943/udp" "9944/tcp" "9944/udp"; do
+      $FW $scope --remove-port="$p" >/dev/null 2>&1 || true
+    done
+    for p in $(blanket_ports); do
+      echo "  clearing the wide-open hack: $p"
+      $FW $scope --remove-port="$p" >/dev/null 2>&1 || true
+    done
+  done
+  echo "  done — no reload (kept ssh + your other rules safe)."
   return "$rc"
 }
 
 next_steps() {
   cat <<'EOF'
 
-Firewall's ready. The rest is done by whoever's using the headset — ask nugget:
+Firewall's ready (ALVR open to your home network only). The rest is done by
+whoever's using the headset — ask nugget:
 
     "help me set up VR"        (the vr-setup skill walks you through it)
 
 The short version:
-  1. On the PC: install SteamVR in Steam, then install ALVR
-     (it's a Steam add-on, not a normal app) and run it once.
+  1. On the PC: install SteamVR in Steam, then install ALVR (a Steam add-on,
+     not a normal app) and run it once.
   2. On the headset: install the ALVR app (via the ALVR launcher or SideQuest),
      open it, and — with the headset ON — click "Trust" next to it in ALVR's
      Devices tab on the PC.
-  3. Both the PC and the headset must be on the SAME Wi-Fi (5 GHz is best;
-     a "guest" network won't work).
+  3. PC + headset must be on the SAME Wi-Fi (5 GHz best; a guest network wont work).
   4. Older AMD card (RX 500-series): set ALVR's video codec to H.264, or the
      headset shows a black screen.
 
-Easier alternative worth a look: WiVRn (in the Bazaar/Discover app store) does
-the same wireless-VR job with less fiddling.
+Easier alternative: WiVRn (in the Bazaar/Discover app store) does the same job
+with less fiddling.
 EOF
+}
+
+persist_hint() {
+  echo
+  echo "NOTE: this box's firewall isn't SAVED — the current rules (VR, game"
+  echo "streaming, even ssh) live only in memory and reset on the next reboot."
+  echo "To make them all permanent, once you're happy VR works:"
+  echo "    sudo firewall-cmd --runtime-to-permanent"
 }
 
 sub="${1:-doctor}"; [ $# -gt 0 ] && shift
@@ -97,17 +133,25 @@ case "$sub" in
     if fw_running; then note "PASS firewalld is running"
     else note "FAIL firewalld isn't running — the headset can't reach the PC without it"; fw_ok=0; fi
 
-    if alvr_permanent || ports_permanent; then
-      note "PASS ALVR ports (9943-9944) are open permanently (survive a reboot)"
+    if alvr_scoped; then
+      note "PASS ALVR ports ($ALVR_PORT_RANGE) open to your LAN only (scoped — survives a Wi-Fi/subnet move)"
+    elif alvr_broad; then
+      note "WARN ALVR is open to ALL sources, not just your LAN — works, but tighten:  sudo lacos vr setup"; fw_ok=0
     else
-      note "FAIL ALVR ports (9943-9944) aren't open permanently — VR breaks after a restart"; fw_ok=0
+      note "FAIL ALVR ports ($ALVR_PORT_RANGE) aren't open — the headset can't reach the PC"; fw_ok=0
     fi
 
     bp="$(blanket_ports)"
     if [ -n "$bp" ]; then
-      note "WARN a wide-open port range is set ($(echo $bp | tr '\n' ' ')) — the 'open everything' hack; VR only needs 9943-9944"; fw_ok=0
+      note "WARN a wide-open port range is set ($(echo $bp | tr '\n' ' ')) — the 'open everything' hack; VR only needs $ALVR_PORT_RANGE"; fw_ok=0
     else
       note "PASS no wide-open port ranges — the firewall is minimal"
+    fi
+
+    # unsaved config is a real, separate fragility (reboot wipes it) — surface it,
+    # but never auto-persist (that's the human's call: it saves the WHOLE state).
+    if fw_running && config_unsaved; then
+      note "WARN firewall isn't saved — all rules (VR, streaming, ssh) reset on reboot; save with:  sudo firewall-cmd --runtime-to-permanent"
     fi
 
     if flatpak info "$ALVR_FLATPAK" >/dev/null 2>&1 || flatpak list 2>/dev/null | grep -q "$ALVR_FLATPAK"; then
@@ -136,13 +180,17 @@ case "$sub" in
     # --fix
     [ "$fw_ok" = 1 ] && { echo; echo "Nothing to fix. 🐔🥽"; exit 0; }
     echo; echo "── repairing the VR firewall ──"
-    if fix_firewall; then echo; echo "── done — re-check: lacos vr doctor ──"; exit 0
-    else echo; echo "── something didn't apply (rc≠0) — re-check: lacos vr doctor ──" >&2; exit 1; fi
+    fix_firewall; frc=$?
+    config_unsaved && persist_hint
+    if [ "$frc" = 0 ]; then echo; echo "── done — re-check: lacos vr doctor ──"; exit 0
+    else echo; echo "── something didn't apply — re-check: lacos vr doctor ──" >&2; exit 1; fi
     ;;
 
   setup)
     echo "Setting up wireless VR (ALVR) on this box…"
-    if fix_firewall; then next_steps; exit 0
+    if fix_firewall; then
+      config_unsaved && persist_hint
+      next_steps; exit 0
     else echo "Couldn't finish the firewall setup — try:  sudo lacos vr doctor --fix" >&2; exit 1; fi
     ;;
 
@@ -151,12 +199,14 @@ case "$sub" in
 lacos vr — wireless VR (ALVR) firewall + readiness  🥽
 
   lacos vr doctor             check the VR firewall + readiness (safe, no admin)
-  sudo lacos vr doctor --fix  repair the firewall (minimal ALVR ports, permanent)
+  sudo lacos vr doctor --fix  repair the firewall (LAN-scoped ALVR rules)
   sudo lacos vr setup         fix the firewall, then show the kid's next steps
   lacos vr help               this help
 
-The kid coaching (install ALVR, pair the headset, tune the picture) lives in the
-nugget "vr-setup" skill — ask nugget: "help me set up VR".
+Opens ALVR (9943-9944) to your private LAN only, the same source-scoped way
+LaCOS opens game streaming — never the whole internet, never a reload (so it
+can't drop ssh). The kid coaching (install ALVR, pair the headset, tune the
+picture) lives in the nugget "vr-setup" skill — ask nugget: "help me set up VR".
 EOF
     ;;
   *)

@@ -44,9 +44,14 @@ ALVR, keep going.
 ```
 sudo lacos vr setup
 ```
-ALVR's own "configure firewall" button **doesn't work** on Linux (it's sandboxed) —
-that's expected, not a bug. This command is why. Don't ever re-open the whole
-1025-65535 range "just in case"; VR never needs it.
+This opens ALVR (9943-9944) to your **home network only** — the same
+source-scoped way LaCOS opens game streaming — not the whole internet, and it
+never reloads the firewall (so it can't knock out ssh). ALVR's own "configure
+firewall" button **doesn't work** on Linux (it's sandboxed) — that's expected,
+not a bug; this command is why. Don't ever re-open the whole 1025-65535 range
+"just in case"; VR never needs it. If `lacos vr doctor` says the firewall isn't
+**saved**, a grown-up can make everything survive a reboot with
+`sudo firewall-cmd --runtime-to-permanent`.
 
 ### 1. On the PC — SteamVR, then ALVR
 1. In **Steam**, install **SteamVR**. Launch it once, let it finish, close it.
@@ -72,10 +77,28 @@ USB. **You do not create accounts or enable Developer Mode** — flag it as a
 parent task. The headset app's version **must match** the PC's ALVR version.
 
 ### 3. Pair
-Both devices on the **same Wi-Fi** (5 GHz best; a **guest** network or "AP
-isolation" will hide the PC — the headset just won't appear). Put the headset on,
-open ALVR on it, then on the PC's ALVR **Devices** tab click **Trust** next to the
+**Best case — same network:** headset and PC on the **same Wi-Fi** (5 GHz best; a
+**guest** network or "AP isolation" will hide the PC). Put the headset on, open
+ALVR on it, then on the PC's ALVR **Connection** tab click **Trust** next to the
 headset. SteamVR launches and the VR view shows up.
+
+**Different subnets (e.g. headset on the house Wi-Fi, PC wired to another router):**
+auto-discovery uses LAN broadcast, which **doesn't cross subnets**, so the headset
+won't show up on its own — that's expected, not broken. If the two can still reach
+each other, add it **by IP**:
+1. On the PC, `ping <headset-IP>` (the headset shows its IP on its ALVR welcome
+   screen). Replies = good; "no route to host" = the network is blocking it → go
+   wired instead ([[vr-usb]]).
+2. On the PC ALVR **Connection** tab, press **"Add client manually"** and fill:
+   **Name** (anything), **Hostname** (exactly as shown on the headset screen), and
+   **IP** (the headset's address). Save. You type the **headset's** IP into the PC —
+   the PC reaches out to it; there's no PC-IP box on the headset. (Change it later
+   with the **Configure** button.)
+3. Still stuck on "searching" after a good ping? It's the firewall — `sudo lacos vr setup`.
+
+### If wireless just won't cooperate → go wired
+A **USB cable** sidesteps all of this (subnets, discovery, firewall) — the most
+reliable link. See **[[vr-usb]]**.
 
 ### 4. If the picture is black (very likely on this box's GPU)
 Run `lacos vr doctor` — if it flags an older AMD (Polaris / RX 500-series) card,

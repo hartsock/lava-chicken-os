@@ -112,6 +112,8 @@ jobs:
             need_x /usr/bin/lacos
             /usr/bin/lacos help 2>/dev/null | grep -q "^  upgrade " \
               || { echo "lacos is missing the upgrade command"; fail=1; }
+            /usr/bin/lacos help 2>/dev/null | grep -q "^  channel " \
+              || { echo "lacos is missing the channel command"; fail=1; }
             # wireless-VR (ALVR) firewall command + its helper must ship and run
             /usr/bin/lacos help 2>/dev/null | grep -q "^  vr " \
               || { echo "lacos is missing the vr command"; fail=1; }

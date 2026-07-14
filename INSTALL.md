@@ -44,8 +44,11 @@ sudo lacos mode desktop    # normal desktop boot
 
 ## What you need
 
-- [ ] **The kids' PC** — with an **AMD graphics card** (most important thing),
-      8 GB+ RAM, and either a spare disk or ~100 GB you can free up
+- [ ] **The kids' PC** — ideally an **AMD graphics card** (the smooth path),
+      **16 GB RAM** (the on-box AI is hungry — 8 GB will boot but crawl), and
+      either a spare disk or ~100 GB you can free up. Not sure if your old PC
+      qualifies? See **[Will it run on your PC?](README.md#will-it-run-on-your-pc-hardware)**
+      — the honest yardstick is the machine LaCOS is actually built on.
 - [ ] **A USB stick, 16 GB or bigger** — it gets erased
 - [ ] **Your laptop** to make the stick (Mac instructions below; Windows too)
 - [ ] **A free [GitHub](https://github.com) account** — this is the remote-access

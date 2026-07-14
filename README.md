@@ -44,6 +44,45 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 - **Bootc image** — Bazzite builds in GitHub Actions → GHCR with an install ISO;
   SteamOS gets the same setup via `bootstrap.sh`
 
+## Will it run on your PC? (hardware)
+
+LaCOS is for old hardware headed for the recycling pile, so the honest yardstick
+is **the reference machine it's built and tested on — "Nugget":**
+
+| Part | Nugget — the reference machine (verified working) |
+|---|---|
+| **CPU** | Intel Core i7-4790 — 4-core / 8-thread, 2014-era Haswell (any 64-bit x86) |
+| **RAM** | 16 GB |
+| **GPU** | AMD Radeon RX 580 (Polaris, Vulkan via RADV) |
+| **Storage** | 512 GB SSD |
+| **Firmware** | UEFI — **no TPM** (yes, the PCs Windows 11 rejects) |
+| **Network** | Gigabit Ethernet (no Wi-Fi) |
+| **Ports** | USB 3.0 |
+
+**If your machine is in that ballpark or better, LaCOS runs.** Concretely:
+
+**Minimum**
+- **64-bit x86 CPU**, ~4 cores, roughly 2013 (Haswell / AMD equivalent) or newer.
+- **16 GB RAM.** This is the real floor, not a suggestion: the on-box AI's 7B
+  model wants ~6–8 GB *on top of* the desktop and a running game. 8 GB will boot
+  but the AI will crawl and swap.
+- A **Vulkan-capable GPU**. **AMD is the smooth path** (RX 580 and up work out of
+  the box); NVIDIA works on the Bazzite base only.
+- A **256 GB SSD or larger.** An SSD, not a spinning disk — the OS image, the AI
+  models (~5 GB), and games need the speed and the room.
+- **UEFI firmware. No TPM required** — that's rather the point.
+
+**Recommended / good to know**
+- More RAM (32 GB) and more cores make the **local AI** noticeably snappier — it
+  runs on the **CPU** on Polaris-class cards. A ROCm-capable AMD GPU (RDNA or
+  newer) accelerates it a lot.
+- Keep the box on **wired Ethernet** — also ideal when it's the VR streaming host.
+- A **USB 3 port** for the install stick and wired VR headsets.
+- **Game Mode (`:deck`) black-screens on Polaris GPUs (RX 5xx)** today
+  ([#38](https://github.com/hartsock/lava-chicken-os/issues/38)) — use the desktop
+  `:stable` variant with Steam Big Picture on those cards.
+- NVIDIA GPUs are supported on the **Bazzite** base, not SteamOS.
+
 ## ⚠️ Read this before touching a USB stick
 
 This project **erases disks, replaces operating systems, and asks you to change

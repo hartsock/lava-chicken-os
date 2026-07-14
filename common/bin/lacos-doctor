@@ -67,7 +67,9 @@ fi
 # 4. newt + per-user agent kit (persona / skills for the invoking human)
 [ -x "$STATE/bin/newt" ] && note "PASS newt installed (shared)" \
   || { note "FAIL newt missing"; remedy "provision 50-nugget-agent.sh"; }
-H="${SUDO_USER:+/var/home/$SUDO_USER}"; H="${H:-${HOME:-/root}}"   # set -u safe: HOME may be unset
+# Resolve the invoking user's home from passwd (works on Bazzite /var/home AND
+# SteamOS /home; a hardcoded /var/home/$SUDO_USER false-fails on SteamOS).
+H="$(getent passwd "${SUDO_USER:-$(id -un)}" 2>/dev/null | cut -d: -f6)"; H="${H:-${HOME:-/root}}"
 if [ -f "$H/.newt/personas/nugget.md" ] && [ -d "$H/.newt/skills" ]; then
   note "PASS persona + skills present for $(basename "$H")"
 else
@@ -200,9 +202,15 @@ for r in "${todo[@]}"; do
                          gpasswd -d "$k" nugget-tui 2>/dev/null
                          echo "    revoked admin + resident-agent for $k (don't re-enable 'Administrator' in KDE Users)" ;;
     fix-steam-home\ *)   u="${r#fix-steam-home }"; h="$(getent passwd "$u" | cut -d: -f6)"
-                         # ONLY ~/.steam — never the whole home (subuid container storage).
-                         [ -n "$h" ] && [ -d "$h/.steam" ] && chown -R "$u" "$h/.steam" \
-                           && echo "    reclaimed $h/.steam for $u — relaunch Steam" || rc=1 ;;
+                         # ONLY ~/.steam, and never a symlink — a hijacked ~/.steam
+                         # -> /etc would let `chown -R` escape the home (don't rely on
+                         # coreutils' -P default). Never the whole home either (subuid
+                         # container storage lives under it).
+                         if [ -n "$h" ] && [ -d "$h/.steam" ] && [ ! -L "$h/.steam" ]; then
+                           chown -R "$u" "$h/.steam" && echo "    reclaimed $h/.steam for $u — relaunch Steam" || rc=1
+                         else
+                           echo "    skipped ~/.steam for $u (missing or a symlink)"; rc=1
+                         fi ;;
     pull-models)         m="$PAY/bin/lacos-pull-models"; [ -x "$m" ] || m="$STATE/bin/lacos-pull-models"
                          echo "    pulling the configured model set (~5 GB; idempotent)…"
                          "$m" || rc=1 ;;

@@ -16,16 +16,14 @@
 # a version change; a user's OWN skills (dirs absent from the payload) are NEVER
 # touched or deleted.
 #
-# The automatic boot re-sync is Bazzite/bootc-only (lava-chicken-skills.service);
-# on SteamOS run `sudo lacos doctor --fix` (or this with --force) after an update.
+# Bazzite/bootc-only (lava-chicken-skills.service). SteamOS installs skills at
+# (re-)provision time (#13), not via this service — it reads the bootc image
+# payload under /usr/share, which SteamOS does not populate.
 #
 #   lacos-sync-skills            sync any identity whose marker != the image version
 #   lacos-sync-skills --force    re-sync everyone regardless of marker
 set -u
-PAY=/usr/share/lava-chicken
-STATE=/var/lib/lava-chicken
-[ -d "$PAY/newt-skills" ] || PAY="$STATE"          # SteamOS staging (doctor/manual path)
-SRC="$PAY/newt-skills"
+SRC=/usr/share/lava-chicken/newt-skills            # bootc image payload
 VER="$(cat /etc/lava-chicken/version 2>/dev/null || echo unknown)"
 FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
 
@@ -64,6 +62,11 @@ while IFS=: read -r uname _ uid _ _ uhome _; do
   [ "$(stat -c %U "$uhome" 2>/dev/null)" = "$uname" ] || { echo "lacos-sync-skills: skip $uname (home not owned by them)"; continue; }
   [ -L "$uhome/.newt" ]        && { echo "lacos-sync-skills: skip $uname (~/.newt is a symlink)"; continue; }
   [ -L "$uhome/.newt/skills" ] && { echo "lacos-sync-skills: skip $uname (~/.newt/skills is a symlink)"; continue; }
+  # A root-owned ~/.newt (a #55-class leaf-only chown) makes the runuser-as-user
+  # copy fail EPERM every boot — skip with an actionable fix, not a false "retry".
+  if [ -e "$uhome/.newt" ] && [ "$(stat -c %U "$uhome/.newt" 2>/dev/null)" != "$uname" ]; then
+    echo "lacos-sync-skills: skip $uname (~/.newt not owned by them — run: sudo chown -R $uname $uhome/.newt)"; continue
+  fi
   if runuser -u "$uname" -- /bin/sh -c "$copy_body" _ "$VER" "$SRC" "$uhome" "$FORCE"; then
     n=$((n + 1))
   else

@@ -1,9 +1,12 @@
 # Apps on Lava Chicken OS
 
-The creative + gaming stack installs as **system Flatpaks** on first boot
-(background) via `lava-chicken-apps.service`, so every user — including the kids —
-gets them. Re-run or check with `lacos apps`; override the set in
-`/etc/lava-chicken/apps.conf`.
+The creative + gaming stack installs on first boot (background) via
+`lava-chicken-apps.service`, so every user — including the kids — gets it:
+**system Flatpaks**, plus **MCreator** (not on Flathub — the official build
+installs per-user, see below). The service re-converges once per image version,
+so an app added to the default lineup reaches existing boxes on the next
+upgrade + reboot — no manual step. Re-run or check with `lacos apps`; override
+the Flatpak set in `/etc/lava-chicken/apps.conf`.
 
 ## What's installed
 
@@ -12,8 +15,23 @@ gets them. Re-run or check with `lacos apps`; override the set in
 | **Art** | Krita, GIMP, Inkscape | Krita is the strong native pick for digital art/painting |
 | **Streaming / recording** | OBS Studio | AMD hardware encode via **VAAPI** (see below) |
 | **Video editing** | Kdenlive, Shotcut | FFmpeg-based — native H.264/AAC in **and** out; the default for YouTube |
-| **Minecraft** | Prism Launcher | mod dev toolchain (JDK/Gradle) is in `scripts/60-modding-tools.sh` |
+| **Minecraft** | Prism Launcher, MCreator | MCreator = visual mod maker (below); the code toolchain (JDK/Gradle) is in `scripts/60-modding-tools.sh` |
 | **Games** | Steam | ships with Bazzite; AMD is first-class |
+
+## 🧱 MCreator — mod making without (or with) code
+
+[MCreator](https://mcreator.net/) isn't on Flathub, so it's the one default app
+that doesn't install as a Flatpak. LaCOS installs the official self-contained
+build (bundled JDK) **per user** into `~/Applications/MCreator` — it needs a
+writable install dir — pinned and sha256-verified from the official MCreator
+GitHub releases. Launch it from the menu (**MCreator**); mod workspaces live in
+`~/MCreatorWorkspaces` and survive app refreshes. Accounts created after first
+boot (kids added via `lacos setup`) get it automatically on their next boot; a
+kid can also (re)install their own copy without an admin: `lacos mcreator`.
+Heads-up: creating the first
+workspace downloads the Gradle/NeoForge toolchain (several GB, needs network);
+budget ~5–10 GB per active modder. It's a desktop IDE — desktop mode, not Game
+Mode.
 
 ## 🅰️ Adobe — use the Windows side
 

@@ -61,6 +61,7 @@ Tailscale step on hardware.)*
 | ✅ Art stack (Krita/GIMP/Inkscape) + Adobe→Windows doc | [#6](https://github.com/hartsock/lava-chicken-os/issues/6) | art apps installed all-users |
 | ✅ OBS + VAAPI hardware encode | [#7](https://github.com/hartsock/lava-chicken-os/issues/7) | hardware-encoded record/stream to YouTube |
 | ✅ Kdenlive/Shotcut default editor + Resolve caveat | [#8](https://github.com/hartsock/lava-chicken-os/issues/8) | kids export H.264 for YouTube |
+| ✅ MCreator visual mod maker (per-user; not on Flathub) | [#65](https://github.com/hartsock/lava-chicken-os/issues/65) | in the menu for every user — fresh installs AND existing boxes after upgrade + reboot |
 
 ## Phase 4 — CI testing
 

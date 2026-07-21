@@ -36,8 +36,10 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 - **[newt-agent](https://github.com/Gilamonster-Foundation/newt-agent)** —
   small, fast, local-first agentic coder, pointed at your local ollama
 - **Minecraft Java Edition mod toolchain** — JDK 21, Gradle (via SDKMAN),
-  Fabric + NeoForge templates, IntelliJ IDEA CE + Prism Launcher (Flatpak); Nugget
-  has a **`modding`** skill that coaches a kid from first mod to writing their own
+  Fabric + NeoForge templates, IntelliJ IDEA CE + Prism Launcher (Flatpak), and
+  **MCreator** (the visual, blocks-based mod maker — the no-code first rung);
+  Nugget has a **`modding`** skill that coaches a kid from first mod to writing
+  their own
 - **Wireless VR** — `lacos vr doctor` / `sudo lacos vr setup` open just the two
   ports ALVR needs (9943-9944), not the "open everything" hack; Nugget's
   **`vr-setup`** skill walks through SteamVR + ALVR (or the easier WiVRn) to a Quest

@@ -1,16 +1,24 @@
 [Unit]
-Description=LaCOS — install creative + gaming Flatpak apps (first boot)
+Description=LaCOS — install creative + gaming apps (Flatpaks + MCreator)
 Documentation=https://github.com/hartsock/lava-chicken-os
+# Runs every boot: MCreator converges per-user (marker-keyed, like the skills
+# sync — this reaches kid accounts created after first boot), then the flatpak
+# converge fast no-ops unless the image version changed since the last
+# SUCCESSFUL converge — so after a `bootc upgrade` a newly-added default app
+# reaches EXISTING boxes automatically (#65). A failed converge writes no
+# stamp, so partial installs still retry next boot (first-boot behavior
+# unchanged). The flatpak stamp lives at /var/lib/lava-chicken/apps.done and
+# is written by the script itself, root-only.
 After=network-online.target
 Wants=network-online.target
-ConditionPathExists=!/var/lib/lava-chicken/apps.done
+# Order after first-boot provisioning so the kid accounts exist before the
+# per-user MCreator install enumerates users (no-op ordering on later boots).
+After=lava-chicken-firstboot.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/share/lava-chicken/bin/lacos-install-apps
-# Stamp only on success (partial installs retry next boot).
-ExecStartPost=/bin/sh -c 'install -d -m0755 /var/lib/lava-chicken && date -u +%%FT%%TZ > /var/lib/lava-chicken/apps.done'
+ExecStart=/usr/share/lava-chicken/bin/lacos-install-apps --boot
 TimeoutStartSec=infinity
 StandardOutput=journal+console
 

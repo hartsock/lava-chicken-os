@@ -9,6 +9,15 @@ source "$HERE/lib-provision.sh"
 if [ "$(os_id)" != bazzite ]; then
   install -d -m0755 "$STATE/bin"
   install -m0755 "$HERE/../bin/lacos-install-apps" "$STATE/bin/lacos-install-apps"
+  # the apps converge execs this sibling (MCreator isn't a Flatpak; #65)
+  install -m0755 "$HERE/../bin/lacos-install-mcreator" "$STATE/bin/lacos-install-mcreator"
+  # SteamOS has no baked /etc/lava-chicken/version — install it from the
+  # checkout (repo root) or payload so the apps converge can version-key its
+  # stamp instead of locking on "unknown" forever (#65). Re-provisioning from
+  # a newer checkout bumps it, which re-arms one full converge.
+  for v in "$HERE/../../VERSION" "$HERE/../VERSION"; do
+    if [ -f "$v" ]; then install -D -m0644 "$v" /etc/lava-chicken/version; break; fi
+  done
   sed 's#/usr/share/lava-chicken/#'"$STATE"'/#' \
     "$HERE/../systemd/lava-chicken-apps.service" \
     > /etc/systemd/system/lava-chicken-apps.service

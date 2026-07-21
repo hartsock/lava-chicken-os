@@ -1,8 +1,8 @@
 ---
 name: modding
-description: Coach a kid into Minecraft modding on this box — Prism Launcher, the Fabric loader, getting mods SAFELY from Modrinth, modpacks, and the on-ramp to writing a first Fabric mod (JDK 21, the template generator, IntelliJ). Downloads only through the launcher, never sketchy sites. No piracy, never enters account passwords.
+description: Coach a kid into Minecraft modding on this box — Prism Launcher, the Fabric loader, getting mods SAFELY from Modrinth, modpacks, and the on-ramp to writing a first mod — MCreator (visual blocks, already installed) first, then real Java (JDK 21, the template generator, IntelliJ). Downloads only through the launcher, never sketchy sites. No piracy, never enters account passwords.
 when_to_use: The user wants to mod Minecraft or "become a modder" — install mods or a modpack, Fabric vs Forge, where to get mods safely, why a modded game crashes, or how to start writing their own mod.
-version: 1.0.0
+version: 1.1.0
 license: MIT
 caveats:
   exec: { only: ["flatpak", "java", "ls", "du"] }
@@ -68,7 +68,20 @@ and CurseForge in-app.
   see exactly what's in it and learn how version-matching works. Good path: play a
   modpack to get inspired, then build a small Fabric instance of your own.
 
-## 7. "I want to WRITE a mod" — the on-ramp
+## 7. "I want to MAKE a mod" — rung 1 is MCreator (no code)
+**MCreator is already on this box** — it's in the launcher menu (check with
+`ls ~/Applications/MCreator`; missing? the kid runs `lacos mcreator` in Konsole —
+no admin needed, it only touches their own account). It builds real Java
+Edition mods from **visual blocks** (procedures), no code required:
+- **First workspace setup downloads a LOT** (the Gradle/NeoForge toolchain,
+  several GB) and needs the internet. Say "start it, go play, come back."
+- Desktop only — it's an IDE, not a Game Mode app.
+- The finished mod exports as a normal `.jar` that drops into a Prism instance.
+  Same hard rules apply to SHARING it: Modrinth/CurseForge, never random sites.
+- **The bridge to real code:** MCreator can show the generated Java for any
+  procedure. When the kid starts reading that pane, they're ready for rung 2.
+
+## 8. "I want to WRITE a mod" — rung 2 is real Java
 Writing a Fabric mod is **Java**. Coach this order:
 1. **JDK 21+** (required since MC 1.20.5). Easiest on this box: install **IntelliJ
    IDEA Community** (`flatpak install flathub com.jetbrains.IntelliJ-IDEA-Community`)
@@ -90,6 +103,7 @@ Writing a Fabric mod is **Java**. Coach this order:
 | Symptom | Fix |
 |---|---|
 | Crash on launch | **Version mismatch** — every mod must match the loader **and** the exact MC version. Use Prism's browser (it filters), not hand-grabbed jars. |
+| MCreator's first workspace "hangs" | It's downloading the whole toolchain (several GB) — needs internet + patience, not a fix. Don't kill it mid-setup. |
 | A mod does nothing / crashes | **Fabric API** missing — install it, matched to the MC version. |
 | "This mod won't load" | It's for the wrong loader. Fabric mods ≠ Forge mods. One loader per instance. |
 | Build fails immediately | Wrong JDK (need **21+**) or a bad project path (spaces/emoji/cloud folder). |

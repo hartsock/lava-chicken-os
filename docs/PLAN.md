@@ -32,7 +32,7 @@ Order matters only loosely; `bootstrap.sh` runs them in sequence:
 | 30 | `login-sound` | systemd user unit plays the audio at `graphical-session.target` |
 | 40 | `ollama` | ROCm tarball into `~/.local/share/ollama`, systemd user unit, pull a starter model |
 | 50 | `newt-agent` | rustup in `$HOME`; build in distrobox if no host toolchain; config → ollama endpoint |
-| 60 | `modding-tools` | SDKMAN → Temurin JDK 21 + Gradle; Flatpaks: IntelliJ IDEA CE, Prism Launcher; clone Fabric/NeoForge templates |
+| 60 | `modding-tools` | SDKMAN → Temurin JDK 21 + Gradle; Flatpaks: IntelliJ IDEA CE, Prism Launcher; MCreator (official build, per-user); clone Fabric/NeoForge templates |
 
 ## Phase 3 — Manual finishing touches
 - Gaming Mode → Settings → Customization → select the Lava Chicken startup movie.

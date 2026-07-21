@@ -2,6 +2,7 @@
 # Minecraft Java Edition mod-dev toolchain, all in $HOME:
 #   SDKMAN -> Temurin JDK 21 + Gradle
 #   Flatpak (--user) -> IntelliJ IDEA Community, Prism Launcher
+#   MCreator (visual mod maker; not on Flathub) -> ~/Applications/MCreator
 #   Starter templates -> ~/mods/
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -27,6 +28,13 @@ if have flatpak; then
 else
   warn "flatpak missing (unexpected on SteamOS/Bazzite); skipping IDE/launcher."
 fi
+
+# --- MCreator — the no-code first rung (#65) --------------------------------
+# Not on Flathub; the shared installer holds the version pin + sha256 and
+# installs the official self-contained build per-user (here: whoever runs
+# bootstrap). On Bazzite the apps service does this for every user instead.
+# Via `bash` so it also works from a checkout with lost exec bits (zip dl).
+bash "$(dirname "$0")/../common/bin/lacos-install-mcreator" || warn "MCreator install failed"
 
 # --- Mod starter templates ---------------------------------------------------
 MODS="$HOME/mods"

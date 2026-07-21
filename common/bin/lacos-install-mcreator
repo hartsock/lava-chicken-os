@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# lacos-install-mcreator — put MCreator (mcreator.net), the visual Minecraft
+# mod-making IDE, on this box. Part of the default app lineup (#65) but NOT a
+# Flatpak: MCreator has never been packaged for Flathub (checked 2026-07-20),
+# so we install the official self-contained Linux build (bundled JDK — no
+# system Java needed) from the MCreator GitHub releases, pinned and
+# sha256-verified.
+#
+# MCreator writes into its own install directory (launcher files, in-app
+# updates), so it must live somewhere writable and PER-USER — never /usr:
+#   ~/Applications/MCreator           the app (a build marker tracks our pin)
+#   ~/.local/share/applications/…     menu entry (the app adds its own Desktop
+#                                     icon on first launch)
+# Mod workspaces land in ~/MCreatorWorkspaces and are never touched here, so
+# refreshing the app cannot eat anyone's mods. A kid who used MCreator's own
+# updater keeps their newer copy: we only reinstall when OUR pin moves
+# (marker != pin), never because the app updated itself (marker == pin).
+#
+# Root mode runs EVERY boot (from lacos-install-apps) and is need-first: it
+# checks every user's marker BEFORE touching the network, so a fully-current
+# box costs a few runuser marker reads and no download. That per-user marker —
+# not the box-wide flatpak stamp — is what carries MCreator to accounts
+# created after first boot (kids added via `lacos setup`), and it retries a
+# user missed on one boot (home not mounted, mid-repair) on the next.
+# Per-user failures are logged and retried next boot, never fatal (the
+# lacos-sync-skills semantics); only a box-level fetch failure exits nonzero.
+#
+# SECURITY (same posture as lacos-sync-skills): every per-user check and
+# mutation runs AS THE TARGET USER via `runuser`, never as root inside a
+# user-owned path; the shared download cache under /var/cache is root-written
+# and world-readable.
+#
+#   as root      install/refresh for every real user (uid 1000..64999)
+#   as a user    install/refresh just for yourself — no sudo needed
+#
+# Bump the pin block together when a new MCreator ships; the tarball's
+# top-level dir tracks the major version (MCreator20262 for 2026.2).
+set -uo pipefail
+
+MC_BUILD="2026.2.29418"     # exact GitHub release tag
+MC_TARBALL="MCreator.2026.2.Linux.64bit.tar.gz"
+MC_TOPDIR="MCreator20262"   # top-level dir inside the tarball
+MC_URL="https://github.com/MCreator/MCreator/releases/download/${MC_BUILD}/${MC_TARBALL}"
+# sha256 of the official release asset (computed from a clean download 2026-07-20).
+MC_SHA256="16d30119746a420cbb80b6b12c001883fdce7fca2fb72f5da1f62a4f8154407d"
+
+SYS_CACHE="/var/cache/lava-chicken"
+
+case "$(uname -m)" in
+  x86_64) ;;
+  *) echo "[mcreator] MCreator is only published for x86_64 — skipping on $(uname -m)"; exit 0 ;;
+esac
+command -v curl >/dev/null 2>&1 || { echo "[mcreator] curl not found" >&2; exit 1; }
+
+sha_ok() { echo "${MC_SHA256}  $1" | sha256sum -c --status 2>/dev/null; }
+
+# Fetch (or reuse) the verified tarball; prints its path. Root fills the shared
+# system cache (world-readable so the per-user runuser extraction can read it);
+# a plain user reuses an intact system copy, else downloads into ~/.cache.
+# The temp name is per-process so overlapping runs (boot service + a parent's
+# `sudo lacos apps`) can never promote each other's half-written download.
+fetch() {
+  local dir f tmp
+  if [ "$(id -u)" = 0 ]; then
+    dir="$SYS_CACHE"
+  else
+    if [ -r "${SYS_CACHE}/${MC_TARBALL}" ] && sha_ok "${SYS_CACHE}/${MC_TARBALL}"; then
+      echo "${SYS_CACHE}/${MC_TARBALL}"; return 0
+    fi
+    dir="${XDG_CACHE_HOME:-$HOME/.cache}/lava-chicken"
+  fi
+  f="${dir}/${MC_TARBALL}"
+  if [ -r "$f" ] && sha_ok "$f"; then echo "$f"; return 0; fi
+  install -d -m0755 "$dir" || return 1
+  tmp="${f}.part.$$"
+  echo "[mcreator] ↓ downloading MCreator ${MC_BUILD} (~360 MB) ..." >&2
+  curl -fsSL --retry 3 --retry-delay 5 -o "$tmp" "$MC_URL" || { rm -f "$tmp"; return 1; }
+  sha_ok "$tmp" || { echo "[mcreator] checksum MISMATCH on download — refusing to install" >&2; rm -f "$tmp"; return 1; }
+  { chmod 0644 "$tmp" && mv "$tmp" "$f"; } || { rm -f "$tmp"; return 1; }
+  echo "$f"
+}
+
+# Marker probe, run AS THE USER: true when their install matches our pin.
+marker_current='[ "$(cat "$1/Applications/MCreator/.lacos-mcreator-build" 2>/dev/null)" = "$2" ]'
+
+# The install body, run once per identity with POSIX sh (the lacos-sync-skills
+# pattern). Positional args:
+#   $1 pinned build   $2 verified tarball   $3 home dir   $4 tarball top dir
+# Stages inside ~/Applications (same filesystem as the target) so the final
+# swap is a rename, then writes the marker and a menu entry. LaCOS homes are
+# /home/<name> or /var/home/<name> — no spaces — so the Exec line is safe.
+install_body='
+build=$1; tb=$2; home=$3; top=$4
+dest=$home/Applications/MCreator
+marker=$dest/.lacos-mcreator-build
+[ "$(cat "$marker" 2>/dev/null)" = "$build" ] && exit 0
+tmp=$home/Applications/.mcreator-staging
+rm -rf "$tmp" && mkdir -p "$tmp" || exit 1
+tar -xzf "$tb" -C "$tmp" || { rm -rf "$tmp"; exit 1; }
+[ -x "$tmp/$top/mcreator.sh" ] || { echo "unexpected tarball layout (no $top/mcreator.sh)" >&2; rm -rf "$tmp"; exit 1; }
+rm -rf "$dest" || { rm -rf "$tmp"; exit 1; }
+mv "$tmp/$top" "$dest" || { rm -rf "$tmp"; exit 1; }
+rm -rf "$tmp"
+printf "%s\n" "$build" > "$marker"
+appdir=$home/.local/share/applications
+mkdir -p "$appdir" || exit 1
+cat > "$appdir/net.mcreator.MCreator.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=MCreator
+Comment=Make Minecraft mods — with blocks or with code
+Exec=bash -c "cd $dest && exec ./mcreator.sh"
+Icon=$dest/icon.png
+Terminal=false
+Categories=Development;IDE;
+EOF
+'
+
+# Not root: self-serve — a kid can run `lacos mcreator` from Konsole, no sudo.
+if [ "$(id -u)" != 0 ]; then
+  if sh -c "$marker_current" _ "$HOME" "$MC_BUILD"; then
+    echo "[mcreator] ✓ MCreator ${MC_BUILD} already current for $(id -un)"
+    exit 0
+  fi
+  tarball="$(fetch)" || { echo "[mcreator] could not fetch the MCreator tarball — check the network and retry" >&2; exit 1; }
+  if sh -c "$install_body" _ "$MC_BUILD" "$tarball" "$HOME" "$MC_TOPDIR"; then
+    echo "[mcreator] ✓ MCreator ${MC_BUILD} ready for $(id -un) (launcher menu: MCreator)"
+    exit 0
+  fi
+  echo "[mcreator] ✗ install failed for $(id -un)" >&2
+  exit 1
+fi
+
+# Root, pass 1 — who needs it? Guards mirror lacos-sync-skills: runuser is the
+# real protection; the stat/symlink checks are defense-in-depth against a home
+# that could redirect the write. Checking need first means a fully-current box
+# never touches the network or the 360 MB tarball.
+NEEDY_U=(); NEEDY_H=()
+while IFS=: read -r uname _ uid _ _ uhome _; do
+  [ "$uid" -ge 1000 ] && [ "$uid" -lt 65000 ] && [ -n "$uhome" ] && [ -d "$uhome" ] || continue
+  [ "$(stat -c %U "$uhome" 2>/dev/null)" = "$uname" ] || { echo "[mcreator] skip $uname (home not owned by them)"; continue; }
+  [ -L "$uhome/Applications" ] && { echo "[mcreator] skip $uname (~/Applications is a symlink)"; continue; }
+  [ -L "$uhome/Applications/MCreator" ] && { echo "[mcreator] skip $uname (~/Applications/MCreator is a symlink)"; continue; }
+  # timeout: a user-controlled marker (e.g. a fifo) must never wedge the boot
+  # service — a stalled probe just counts that user as needing an install.
+  timeout 15 runuser -u "$uname" -- /bin/sh -c "$marker_current" _ "$uhome" "$MC_BUILD" && continue
+  NEEDY_U+=("$uname"); NEEDY_H+=("$uhome")
+done < <(getent passwd)
+
+if [ "${#NEEDY_U[@]}" -eq 0 ]; then
+  echo "[mcreator] all users current (MCreator ${MC_BUILD})"
+  exit 0
+fi
+
+# Box-level fetch failure is the ONE fatal outcome — visible in the journal,
+# retried next boot because the whole script reruns.
+tarball="$(fetch)" || { echo "[mcreator] could not fetch the MCreator tarball (retries next boot / lacos apps)" >&2; exit 1; }
+
+# Root, pass 2 — install for the users that need it, as them.
+fails=0
+for i in "${!NEEDY_U[@]}"; do
+  # generous bound (old spinning disks), but bounded: user-controlled homes
+  # must never hang the boot converge forever.
+  if timeout 1800 runuser -u "${NEEDY_U[$i]}" -- /bin/sh -c "$install_body" _ "$MC_BUILD" "$tarball" "${NEEDY_H[$i]}" "$MC_TOPDIR"; then
+    echo "[mcreator] ✓ ${NEEDY_U[$i]}"
+  else
+    echo "[mcreator] ✗ FAILED for ${NEEDY_U[$i]} (retries next boot; they can also run: lacos mcreator)" >&2
+    fails=$((fails + 1))
+  fi
+done
+echo "[mcreator] MCreator ${MC_BUILD} — $((${#NEEDY_U[@]} - fails)) installed/refreshed, $fails failed"
+exit 0

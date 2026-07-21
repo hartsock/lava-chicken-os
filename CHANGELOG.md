@@ -10,6 +10,8 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
 
 ## [Unreleased]
 
+## [0.0.2]
+
 ### Added
 - **Original boot chime + movie** ship as defaults — the owner's own
   `boot-sound.wav` (greeter-time ALSA) + `boot-movie.webm` (Steam Game Mode
@@ -29,6 +31,15 @@ SteamOS). See [docs/REMOTE-DAYZERO.md](docs/REMOTE-DAYZERO.md) for the design.
   `qwen2.5-coder:7b` + `nomic-embed-text` on first boot with progress (stamped on
   success, retries otherwise), so the agent is instant. Re-run/check with
   `lacos models`; override the set in `/etc/lava-chicken/models.conf`.
+- **MCreator in the default lineup** (#65) — the visual Minecraft mod-making
+  IDE. Not on Flathub, so `lacos-install-mcreator` installs the official
+  self-contained build (pinned + sha256-verified) per user into
+  `~/Applications/MCreator`; kids self-serve with `lacos mcreator` (no sudo).
+  The apps service also stops stamping itself out forever: MCreator converges
+  per-user every boot (marker-keyed, so kids added later via `lacos setup`
+  still get it), and the flatpak set re-converges once per image version — so
+  apps added to the lineup reach existing boxes on the next upgrade + reboot.
+  Re-run/check with `lacos apps`.
 
 ## [0.0.1] — bring-up
 

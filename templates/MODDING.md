@@ -5,6 +5,8 @@ Installed by `scripts/60-modding-tools.sh`:
 - **JDK 21 (Temurin)** + **Gradle** via SDKMAN (`sdk current`)
 - **IntelliJ IDEA Community** (Flatpak) — install the *Minecraft Development* plugin
 - **Prism Launcher** (Flatpak) — test instances with your mod dropped in
+- **MCreator** (official build, per-user in `~/Applications/MCreator`) — visual,
+  blocks-based mod maker; the no-code on-ramp before the IntelliJ path
 - Templates in `~/mods/`: `fabric-example-mod`, `neoforge-mdk`
 
 ## Loop

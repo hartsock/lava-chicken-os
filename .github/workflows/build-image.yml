@@ -212,6 +212,19 @@ jobs:
             need_f /usr/share/lava-chicken/sunshine/sunshine.conf
             grep -qE "^encoder[[:space:]]*=" /usr/share/lava-chicken/sunshine/sunshine.conf \
               || { echo "shipped sunshine.conf missing an encoder default"; fail=1; }
+            # MCreator (#65): the one default app that cannot ship as a Flatpak.
+            # Installer must be baked, wired into the apps converge + lacos, and
+            # the apps unit must stay version-keyed (no forever-stamp Condition,
+            # or new default apps never reach already-installed boxes).
+            need_x /usr/share/lava-chicken/bin/lacos-install-mcreator
+            grep -q "lacos-install-mcreator" /usr/share/lava-chicken/bin/lacos-install-apps \
+              || { echo "apps converge does not include MCreator"; fail=1; }
+            /usr/bin/lacos help 2>/dev/null | grep -q "^  mcreator " \
+              || { echo "lacos is missing the mcreator command"; fail=1; }
+            grep -q "ConditionPathExists" /usr/lib/systemd/system/lava-chicken-apps.service \
+              && { echo "apps unit regressed to the forever-stamp (upgrade gap, #65)"; fail=1; } || true
+            grep -q -- "--boot" /usr/lib/systemd/system/lava-chicken-apps.service \
+              || { echo "apps unit lost the --boot fast path (full converge every boot)"; fail=1; }
             need_x /usr/share/lava-chicken/bin/lacos-pull-models
             # doctor REQUIRED model set (what --fix pulls) must equal the puller
             # default, or doctor demands a model the puller never fetches — a --fix

@@ -67,7 +67,8 @@ usage: lacos <command>
   channel       show/switch update channel: 'sudo lacos channel stable|unstable'
                 (stable = tested releases only; unstable = every change from main)
   models        pull/refresh the LLM models (qwen2.5-coder + embeddings)
-  apps          install/refresh the creative + gaming Flatpak apps
+  apps          install/refresh the creative + gaming apps (Flatpaks + MCreator)
+  mcreator      install/refresh MCreator just for your own account (no admin)
   version       print the OS version
   help          this help
 EOF
@@ -155,6 +156,13 @@ case "${1:-help}" in
     shift
     if a="$(find_bin lacos-install-apps)"; then exec "$a" "$@"
     else echo "lacos-install-apps not found" >&2; exit 1; fi
+    ;;
+  mcreator)
+    # Per-user by design (see lacos-install-mcreator) — a kid can run this
+    # without sudo and only their own account changes.
+    shift
+    if m="$(find_bin lacos-install-mcreator)"; then exec "$m" "$@"
+    else echo "lacos-install-mcreator not found" >&2; exit 1; fi
     ;;
   setup)
     shift

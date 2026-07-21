@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Install the LaCOS creative + gaming Flatpak apps system-wide (all users, incl
-# kids). Idempotent. Run by lava-chicken-apps.service on first boot, or by hand
-# via `lacos apps`. App list from /etc/lava-chicken/apps.conf, else the default.
+# Install the LaCOS creative + gaming apps system-wide (all users, incl kids):
+# Flatpaks from Flathub, plus MCreator (not on Flathub — official per-user
+# build; see lacos-install-mcreator). Idempotent. Run by
+# lava-chicken-apps.service (every boot; `--boot` fast no-ops once converged
+# for the booted image version), or by hand via `lacos apps` (always
+# converges). Flatpak list from /etc/lava-chicken/apps.conf, else the default.
 set -uo pipefail
 
 CONF=/etc/lava-chicken/apps.conf
+STAMP=/var/lib/lava-chicken/apps.done
 # Art (Adobe alternatives) · streaming · video editing · Minecraft.
 DEFAULT_APPS="\
 org.kde.krita \
@@ -19,6 +23,31 @@ if [ -r "$CONF" ]; then
   APPS="$(grep -vE '^\s*(#|$)' "$CONF" | tr '\n' ' ')"
 else
   APPS="$DEFAULT_APPS"
+fi
+
+# MCreator (#65) converges per-user on EVERY run — before and independent of
+# the flatpak stamp below, so accounts created after first boot (kids added
+# via `lacos setup`) get it on their next boot, and one broken home can never
+# force eternal flatpak re-converges. Its per-user markers make a current box
+# a fast no-op; only a box-level fetch failure exits nonzero.
+mcrc=0
+MC="$(cd "$(dirname "$0")" && pwd)/lacos-install-mcreator"
+if [ -x "$MC" ]; then
+  "$MC" || { echo "[apps] ✗ MCreator converge incomplete (retries next boot)" >&2; mcrc=1; }
+else
+  echo "[apps] ✗ lacos-install-mcreator missing next to this script" >&2; mcrc=1
+fi
+
+# --boot (the service): converge the flatpaks once per image version, then
+# fast no-op. This is what carries a NEW default flatpak onto an
+# already-installed box after `lacos upgrade` + reboot — the stamp used to be
+# written once, forever (#65). An "unknown" version is never trusted: better
+# an idempotent re-converge every boot than a stamp that locks out updates.
+IMGVER="$(cat /etc/lava-chicken/version 2>/dev/null || echo unknown)"
+if [ "${1:-}" = --boot ] && [ "$IMGVER" != unknown ] \
+   && [ "$(cat "$STAMP" 2>/dev/null)" = "$IMGVER" ]; then
+  echo "[apps] flatpaks already converged for image $IMGVER"
+  exit "$mcrc"
 fi
 
 command -v flatpak >/dev/null 2>&1 || { echo "[apps] flatpak not found" >&2; exit 1; }
@@ -41,5 +70,14 @@ flatpak install --system -y --noninteractive flathub \
   org.freedesktop.Platform.GStreamer.gstreamer-vaapi 2>/dev/null \
   || echo "[apps] note: add the gstreamer-vaapi runtime for OBS hw encode"
 
-[ "$rc" -eq 0 ] && echo "[apps] all creative apps present."
+if [ "$rc" -eq 0 ]; then
+  echo "[apps] all creative apps present."
+  # Stamp the converged image version — root only (the service / sudo path;
+  # a kid running `lacos apps` still converges what they can, minus the
+  # stamp), and never stamp an unknown version (see the fast path above).
+  if [ "$(id -u)" = 0 ] && [ "$IMGVER" != unknown ]; then
+    install -d -m0755 /var/lib/lava-chicken && printf '%s\n' "$IMGVER" > "$STAMP"
+  fi
+fi
+[ "$rc" -ne 0 ] || rc="$mcrc"
 exit "$rc"

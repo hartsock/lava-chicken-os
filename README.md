@@ -41,6 +41,9 @@ with <b>Nugget</b>, a resident AI agent living on the box.
 - **Wireless VR** — `lacos vr doctor` / `sudo lacos vr setup` open just the two
   ports ALVR needs (9943-9944), not the "open everything" hack; Nugget's
   **`vr-setup`** skill walks through SteamVR + ALVR (or the easier WiVRn) to a Quest
+- **Private tailnet setup** — the **`tailscale-setup`** skill checks MagicDNS
+  and HTTPS, then coaches a parent through a tailnet-only Authentik/Google SSO
+  path without handling credentials or enabling public Funnel access
 - **Nugget boot splash** — a Plymouth theme with the mascot and *Lava Chicken OS*
 - **Nugget, your resident agent** — a dedicated on-box account running
   [newt-agent](https://github.com/Gilamonster-Foundation/newt-agent) in a

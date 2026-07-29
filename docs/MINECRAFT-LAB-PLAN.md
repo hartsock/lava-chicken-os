@@ -53,6 +53,16 @@ a versioned secret-free starter, and clean-room instructions. Each household
 owns its live topology, identities, secrets, and backups. Editing, building,
 and local playtesting must continue when Gitea is unavailable.
 
+Authentik is the single household identity broker. It and Gitea are exposed
+only through private Tailscale operator paths on canonical,
+Tailscale-resolved HTTPS names; clients accept Tailscale DNS, and neither
+service uses `authentik.home.lab`, Funnel, or public ingress. A Phase 0 gate
+must prove the Authentik `*.ts.net` Google callback or select the runbook's
+parent-owned-domain private Gateway branch. Approved Gmail accounts enter
+through an Authentik Google source, while other child emails use parent-issued
+invitations plus a password or passkey. SteamID64 and Minecraft Java UUID are
+explicit, guardian-approved identity links—not login aliases or role sources.
+
 The most important architectural decision is to **pin complete, tested version sets**. As of July 2026, the newest Fabric and NeoForge documentation targets the Minecraft 26.x line and JDK 25, while Lava Chicken OS currently installs JDK 21 and clones 1.21-era examples. Both can be useful, but they must be separate named tracks:
 
 - `classroom`: boring, tested, stable, optimized for successful learning sessions
@@ -498,9 +508,10 @@ lacos minecraft lesson status
 - `doctor --json` must exist so Nugget and CI can reason over structured results.
 - The CLI should never ask for Microsoft, Steam, or Meta passwords.
 - The CLI and Nugget must never receive or store a Gitea administrator token.
-- Gitea endpoint, organization, and CA settings are non-secret site
-  configuration supplied during parent-run setup; no home-specific value is
-  baked into this public repository or image.
+- Gitea endpoint, organization, canonical Authentik issuer, and tailnet
+  transport policy are non-secret site configuration supplied during
+  parent-run setup; no home-specific value is baked into this public repository
+  or image.
 - `git connect` may add a verified remote and enroll a user-owned public key,
   but repository and account administration remain parent-owned.
 - Local edit, commit, build, test, and play commands must work while Gitea is
@@ -705,7 +716,7 @@ Lava Chicken OS never owns or silently deploys a Git service. Support two
 parent-operated paths:
 
 1. initialize a new user-owned `my_home` from the public blank starter and
-   deploy a new LAN-only Gitea to the household’s own k3s cluster; or
+   deploy a new tailnet-only Gitea to the household’s own k3s cluster; or
 2. enroll and harden an existing compatible private Gitea.
 
 `my_home` is a convention, not a repository that users clone from the
@@ -714,8 +725,8 @@ the same:
 
 | Responsibility | Owning repository |
 |---|---|
-| Generic blank-home starter, clean-room guide, local Git initialization, commits, remote setup, push/pull/clone UX, site-setting discovery, CA trust, SSH host verification, and doctor checks | public `lava-chicken-os` |
-| Rendered Gitea configuration and version, database, storage, private DNS, TLS/CA, ingress, firewall, identity, authorization, organization/repository bootstrap, backups, disaster recovery, and any runners | that household’s private `my_home` |
+| Generic blank-home starter, clean-room guide, local Git initialization, commits, remote setup, push/pull/clone UX, site-setting discovery, MagicDNS/HTTPS checks, SSH host verification, and doctor checks | public `lava-chicken-os` |
+| Rendered Tailscale Operator, Authentik and Gitea configuration and versions, database, storage, tailnet DNS/tags/grants, ingress, firewall, identity, authorization, organization/repository bootstrap, backups, disaster recovery, and any runners | that household’s private `my_home` |
 | Children’s Minecraft source, issues, releases, and project history | private repositories on the in-home Gitea |
 
 The public repository may contain generic, placeholder-only, secret-free Helm
@@ -744,20 +755,20 @@ The clean-room workflow is:
 3. run `git init -b main` and confirm `git remote -v` is empty;
 4. fill explicit placeholders using a gitignored local overlay or
    SOPS/age-encrypted values;
-5. keep the decryption key, home-CA root key, and break-glass credentials
-   off-cluster and outside Git;
+5. keep decryption keys, Authentik/Gitea break-glass credentials, Google and
+   Tailscale OAuth secrets, and recovery material off-cluster and outside Git;
 6. preflight the selected kube context, node architecture/resources, storage
-   class, secrets encryption, private ingress address, private DNS, TLS plan,
-   and off-cluster backup target;
+   class, secrets encryption, Tailscale Operator, MagicDNS/HTTPS, Authentik
+   issuer, service grants, and off-cluster backup target;
 7. print the target cluster identity and require parent confirmation before
    any install;
 8. render and inspect pinned Gitea and database artifacts;
-9. deploy namespace, durable storage, database, Gitea, NetworkPolicies, private
-   ingress/SSH, and backup jobs;
-10. bootstrap a local break-glass administrator, parent owner, private
-    organization, and separate non-admin child identities without an external
-    identity-provider dependency;
-11. prove authenticated LAN access and external denial;
+9. deploy the pinned Tailscale Operator, Authentik, database, Gitea,
+   NetworkPolicies, tailnet-only ingress/optional SSH, and backup jobs;
+10. bootstrap local break-glass administrators, then use Authentik native OIDC
+    for parent and child everyday identities;
+11. prove approved-tailnet access, Google and invited-child login, and
+    off-tailnet/external denial;
 12. enroll LaCOS with a versioned non-secret site contract;
 13. create a private `my_home` repository on the new Gitea and push the local
     history only after the service passes its privacy tests;
@@ -771,24 +782,30 @@ domain, address, key, or remote.
 
 ### 9.3 Private service posture
 
-The first supported posture is **home-LAN only**:
+The first supported source-hosting posture is **tailnet-only**:
 
-- publish the web and Git/SSH endpoints only through private addressing and
-  private DNS;
-- keep Gitea’s HTTP and SSH Kubernetes Services at `ClusterIP`; route web
-  traffic through an explicitly private ingress, and expose SSH only through a
-  separately source-restricted private path;
-- do not assume k3s’s default Traefik/ServiceLB placement is private—restrict
-  eligible nodes/addresses and enforce node and router firewalls;
-- do not create public DNS records, router/NAT forwarding, UPnP mappings,
-  public tunnels, “funnel” features, or public reverse-proxy routes;
+- keep Tailscale DNS enabled on every LaCOS client;
+- give Gitea a canonical HTTPS MagicDNS `*.ts.net` name and give Authentik the
+  one Tailscale-resolved name selected by the Google Phase 0 gate;
+- never use `authentik.home.lab` as an issuer, callback, or service endpoint;
+- keep Authentik and Gitea Kubernetes Services at `ClusterIP`; route web
+  traffic only through Tailscale Operator `Ingress` resources;
+- expose optional SSH only through a separately tagged and granted tailnet
+  path;
+- configure the reviewed in-cluster MagicDNS path so Gitea can validate and
+  reach the same canonical Authentik issuer;
+- do not assume k3s's default Traefik/ServiceLB placement is private—ensure it
+  has no route for the Authentik or Gitea hosts;
+- do not create public A/AAAA/CNAME service records, router/NAT forwarding,
+  UPnP mappings,
+  public tunnels, Tailscale Funnel, or public reverse-proxy routes;
 - deny anonymous browsing and API access;
 - disable open registration;
 - force every newly created or push-created repository to be private;
 - require authentication for all project access;
-- use TLS from the home CA and install that CA through a parent-run LaCOS setup
-  step—never teach users to bypass certificate validation;
-- pin the TLS CA and SSH host fingerprints through a trusted parent-run channel;
+- require the Tailscale Ingress's publicly trusted certificate without making
+  the endpoint public—never teach users to bypass certificate validation;
+- pin optional SSH host fingerprints through a parent-run channel;
 - use non-root workloads, dropped capabilities, no privilege escalation,
   default-deny NetworkPolicies, no automatic service-account token, durable
   storage, and resource limits;
@@ -797,17 +814,37 @@ The first supported posture is **home-LAN only**:
   persists plaintext in the Kubernetes API or datastore;
 - never put runtime secrets inline in tracked Helm values;
 - pin Gitea and database images by immutable version or digest;
-- verify reachability from an allowed home client and non-reachability from an
-  external network over both IPv4 and globally routable IPv6 as separate
-  acceptance tests.
+- verify reachability from an approved tailnet client, non-reachability with
+  Tailscale disconnected, and non-reachability from an external network over
+  both IPv4 and globally routable IPv6 as separate acceptance tests.
 
-VPN access is not part of the first milestone. If it is added later, it requires
-a parent-approved threat-model change and an explicit source allowlist. It must
-remain private and must not create a public ingress path.
+The complete setup and migration contract is
+[Private Tailscale, Authentik, and Household SSO](TAILSCALE-AUTHENTIK.md).
 
 ### 9.4 Identity and repository model
 
-Create a parent-owned organization for Minecraft Lab projects:
+Authentik is the only identity broker trusted by Gitea and household services:
+
+- one person has one opaque household principal anchored to Authentik's stable
+  OIDC issuer and subject;
+- Google OAuth is an Authentik source for approved Gmail accounts;
+- a child with any other email uses a parent-created, short-lived,
+  single-use invitation plus a password or passkey;
+- no open enrollment;
+- email is a mutable contact/login label, never a primary key or automatic-link
+  rule;
+- linking another login source requires an already authenticated principal and
+  explicit parent approval;
+- application roles come only from parent-managed Authentik groups, never from
+  Google domain/email, tailnet membership, Steam name, Minecraft name, or a
+  display name;
+- each application has a separate confidential OIDC provider, exact callback,
+  minimal scopes, and locally derived required claim;
+- Authentik and Gitea each retain a local parent-owned break-glass
+  administrator.
+
+Gitea uses native Authentik OIDC, not forward-auth alone. Create a parent-owned
+organization for Minecraft Lab projects:
 
 - parents are organization owners and recovery administrators;
 - each child has an individual, non-admin account;
@@ -820,17 +857,79 @@ Create a parent-owned organization for Minecraft Lab projects:
 - automatic push mirrors to GitHub or any other public forge are prohibited for
   this repository class.
 
-Use a separate per-user SSH key or an equivalently scoped credential. The
-private half stays in that user’s account and is never copied to Gitea, Nugget,
-the OS image, or either infrastructure repository. The parent enrolls only the
-public key and keeps account-recovery authority. Pin the service host key so a
-DNS or network mistake fails closed.
+Browser OIDC does not authenticate Git pushes. Use a separate per-user SSH key
+or narrowly scoped Gitea credential. The private half stays in that user's
+account and is never copied to Authentik, Gitea, Nugget, the OS image, or
+either infrastructure repository. The parent enrolls only the public key and
+keeps recovery authority. Pin optional SSH host identity so a DNS or network
+mistake fails closed.
 
-For the first vertical slice, a parent creates the user and empty private
-repository. `lacos minecraft git connect` verifies the configured endpoint and
-adds it as `origin`; it does not need service-admin credentials.
+Disabling Authentik is not complete offboarding. Also disable the Gitea user
+and revoke Authentik/Gitea sessions, outstanding invitations, Gitea tokens,
+SSH keys, and external identity links through the idempotent parent-run
+workflow. The household objective is complete revocation within 15 minutes,
+with a scheduled drift reconciler and tests against already-issued sessions
+and credentials.
 
-### 9.5 Actions runner boundary
+For the first vertical slice, a parent authorizes the child through Authentik
+and creates the empty private repository. `lacos minecraft git connect`
+verifies the configured endpoint and adds it as `origin`; it needs neither
+service-admin nor Authentik credentials.
+
+### 9.5 Steam and Minecraft identity links
+
+Steam and Minecraft identities attach to the household principal; they do not
+replace it and cannot grant a parent or Gitea role.
+
+Keep this private record:
+
+```text
+person_id
+provider
+issuer
+subject
+display_name_snapshot
+verification_method
+verified_at
+guardian_approved_at
+revoked_at
+```
+
+Enforce uniqueness on `(provider, issuer, subject)`.
+
+For Steam:
+
+1. require a recent Authentik session;
+2. create a short-lived, single-use state bound to that principal;
+3. redirect the browser to Steam's supported OpenID endpoint;
+4. verify the signed assertion server-side;
+5. store the verified SteamID64, not a display name;
+6. show the resolved account to the child and parent before committing the
+   link.
+
+Never collect a Steam password, cookie, API key, access token, or refresh
+token. Steam OpenID proves account control at link time; it does not prove
+ownership of arbitrary games.
+
+For Minecraft Java:
+
+1. require the private Paper server to run `online-mode=true` with a whitelist;
+2. have a linking plugin issue a short-lived, single-use code to the
+   authenticated in-game player;
+3. redact the code from logs and rate-limit attempts;
+4. have the child enter it in an already Authentik-authenticated private
+   portal;
+5. atomically bind the server-authenticated Java UUID to the principal after
+   parent approval;
+6. keep the current player name only as a mutable display label.
+
+Never request a Microsoft password/device code, launcher cookie, Xbox/XSTS
+token, Minecraft access token, or another launcher's client ID. A generic
+Microsoft login never marks Minecraft ownership as verified. The initial proof
+means “this person controlled this Java UUID during an authenticated server
+session,” not “the household exported Microsoft Store entitlement data.”
+
+### 9.6 Actions runner boundary
 
 Treat a workflow file as executable code. Kid-controlled repositories must not
 run on a privileged or general-purpose home-lab runner.
@@ -847,7 +946,7 @@ project CI is added later, `my_home` must provide a dedicated runner pool with:
 - parent-controlled enrollment and workflow enablement;
 - a documented compromise-and-rebuild procedure.
 
-### 9.6 Backup and recovery
+### 9.7 Backup and recovery
 
 Git clones protect source history, but they do not protect Gitea issues,
 permissions, releases, or database metadata. The private infrastructure plan
@@ -860,29 +959,35 @@ Keep these recovery domains separate:
 - Minecraft server worlds and deployment metadata;
 - Prism profile manifests;
 - project build artifacts;
-- parent-owned identity and CA recovery.
+- parent-owned Authentik, external-link, tailnet, and break-glass recovery.
 
 Do not use a public GitHub mirror as the disaster-recovery mechanism for
 children’s repositories. At least one parent-controlled recovery copy must
 remain inside the home trust boundary.
 
-### 9.7 Cross-repository acceptance contract
+### 9.8 Cross-repository acceptance contract
 
 The boundary is ready when all of the following are demonstrated:
 
-1. An authenticated child account on an allowed home client can clone, push,
-   pull, and recover a private project.
+1. An authorized child on an approved tailnet client can use Authentik and a
+   per-user Git credential to clone, push, pull, and recover a private project.
 2. Anonymous web and API requests cannot enumerate or read projects.
-3. A probe from outside the approved private network cannot reach the web or
-   SSH service.
-4. Creating a repository through every allowed path yields a private
+3. Google login and invited arbitrary-email login work for approved children;
+   unapproved enrollment and email-based automatic linking fail.
+4. A probe with Tailscale disconnected and a probe from an external network
+   cannot reach the web or optional SSH service.
+5. Creating a repository through every allowed path yields a private
    repository with no mirror.
-5. Removing a child’s access blocks both web and Git access without deleting
+6. Removing a child's access blocks Authentik, web, token, and SSH access
+   without deleting
    the child’s local work.
-6. LaCOS reports a useful offline state when Gitea is down while local
+7. A SteamID64 or Java UUID cannot link to two principals; replayed/expired
+   callbacks or codes fail and no platform credential is stored.
+8. LaCOS reports a useful offline state when Gitea is down while local
    edit/build/test/play remains functional.
-7. A backup-and-restore drill recovers source plus Gitea metadata.
-8. Neither public repository nor diagnostic output contains home topology or
+9. A backup-and-restore drill recovers source, Gitea metadata, Authentik
+   configuration, and identity-link records.
+10. Neither public repository nor diagnostic output contains home topology or
    credentials.
 
 ---
@@ -988,8 +1093,8 @@ Default:
 Remote play is deferred outside the first Epic. A later parent-approved design
 may use a private mesh VPN with explicit friend/device membership, a
 source-scoped firewall, online authentication, and the whitelist still enabled.
-It requires its own threat-model review and must not change the Gitea LAN-only
-baseline.
+It requires its own threat-model review and must not change the Gitea
+tailnet-only baseline.
 
 Do not expose a child-operated development server directly to the public internet.
 
@@ -1453,7 +1558,8 @@ The public LaCOS test suite should verify:
   exact, chart-versioned key paths and never upload rendered output or evidence;
 - local Git initialization and commits require no network;
 - an unset site endpoint produces an actionable, non-fatal status;
-- a configured endpoint must use the approved private-site scheme and CA;
+- a configured endpoint must use the approved tailnet-only scheme, MagicDNS,
+  canonical Authentik issuer, and validated HTTPS;
 - a remote outside the configured private Gitea is never added automatically;
 - failed clone/push/pull operations do not damage local history;
 - human and JSON doctor output redact credentials and home topology;
@@ -1461,16 +1567,31 @@ The public LaCOS test suite should verify:
 
 The versioned acceptance script run inside each household should verify:
 
-- registration and anonymous project access are disabled;
+- local self-registration and anonymous project access are disabled; approved
+  Authentik principals can be provisioned through external OIDC;
 - all allowed repository-creation paths default to private;
 - Minecraft repositories have no push mirror;
-- ingress and Git/SSH are allowed only from approved private sources;
+- every client accepts Tailscale DNS and no issuer, callback, cookie, or service
+  endpoint uses `home.lab`;
+- Authentik and Gitea use separate approved Tailscale Ingress resources with no
+  Funnel annotation or ordinary/public ingress;
+- Gitea can resolve, validate, and reach the same canonical Authentik issuer
+  from its pod;
+- approved Google and invited arbitrary-email logins succeed, while unapproved
+  enrollment and email-based account linking fail;
+- ingress and optional Git/SSH are allowed only from approved tailnet sources;
 - public DNS, IPv4/IPv6 reachability, router forwarding, UPnP, and tunnels do
   not expose the service;
+- disconnecting Tailscale makes the service unreachable;
 - a child cannot create an organization, make a repository public, add a mirror
   or webhook, enable Actions, or administer the organization;
+- revoking a child removes Authentik, Gitea web, token, and SSH access without
+  deleting local Git history;
+- Steam and Minecraft link collision/replay/expiry tests pass without storing
+  platform credentials;
 - kid projects cannot schedule work on a privileged shared runner;
-- backup and restore recover repositories plus database metadata.
+- backup and restore recover repositories, database metadata, Authentik
+  configuration, and identity-link records.
 
 The public release gates only the generic starter and acceptance-script
 behavior; it does not depend on a maintainer’s private suite. Each household
@@ -1483,11 +1604,20 @@ only policy version and pass/fail—never addresses, topology, accounts, or logs
 
 ### 17.1 Accounts
 
+- Authentik is the only IdP trusted by household applications.
+- Google sign-in is an Authentik source for parent-approved accounts; other
+  child emails use invitation-only local accounts and a password or passkey.
+- Email and display-name equality never links identities or grants roles.
+- Parents own enrollment, linking, role changes, recovery, and deprovisioning.
 - Each player uses a legitimate Minecraft Java Edition entitlement.
 - A parent handles Microsoft sign-in.
 - Nugget never types, reads, stores, or transmits a password.
 - Do not support cracked launchers or offline-account workarounds for multiplayer.
-- Steam and Meta account actions remain human-owned.
+- Steam, Microsoft, Minecraft, Meta, Google, and Tailscale account actions
+  remain human-owned.
+- Store only reviewed stable external identifiers and verification metadata;
+  never platform passwords, cookies, authorization codes, access/refresh
+  tokens, device codes, launcher tokens, or Xbox/XSTS tokens.
 
 ### 17.2 Mods and plugins
 
@@ -1512,12 +1642,15 @@ only policy version and pass/fail—never addresses, topology, accounts, or logs
 ### 17.4 Source hosting
 
 - Public LaCOS may ship only the account-neutral starter, generic templates,
-  and policy tests; every rendered Gitea deployment and home-network value
-  lives only in that household’s private `my_home`.
+  and policy tests; every rendered Tailscale, Authentik, Gitea deployment and
+  home-network/identity value lives only in that household’s private `my_home`.
 - Minecraft project repositories are private and require sign-in.
+- Authentik and Gitea use canonical tailnet HTTPS names, Tailscale DNS, native
+  OIDC, and no Funnel/public ingress.
 - Do not mirror child projects to GitHub.
-- Do not store Gitea passwords, private keys, administrator tokens, or recovery
-  codes in either repository, OS images, generated projects, or Nugget context.
+- Do not store Google/Tailscale client secrets, Authentik or Gitea passwords,
+  private keys, administrator tokens, or recovery codes in either public
+  repository, OS images, generated projects, or Nugget context.
 - Give each child a separate identity and least-privilege project access.
 - Keep Gitea Actions off for kid repositories until an isolated runner and
   explicit parent approval exist.
@@ -1607,10 +1740,22 @@ lacos minecraft vr doctor
 ### Phase 0: Architecture and security gate
 
 - record the two-repository ownership contract;
-- define the LAN-only threat model and negative exposure tests;
-- choose the parent/child identity and repository-permission model;
+- define the tailnet-only Authentik/Gitea threat model and negative exposure
+  tests, while keeping the Paper game server LAN-only;
+- test the candidate MagicDNS/HTTPS names and prove the pinned Operator's
+  in-cluster issuer-resolution path;
+- run an isolated candidate deployment with no household rollout or relying
+  parties; either prove the exact Authentik `*.ts.net` callback with a
+  supervised test login and promote it, or tear it down and prove the private
+  parent-owned-domain Gateway branch;
+- define the canonical household principal, invitation-only child enrollment,
+  Google source policy, no-email-auto-link rule, parent/child groups, and
+  repository permissions;
+- define SteamID64 and Minecraft Java UUID proof/link/replay/collision
+  contracts;
 - select one exact classroom version matrix;
-- keep remote Gitea access and private-project Actions out of the first release;
+- keep public/Funnel ingress and private-project Actions out of the first
+  release;
 - define the versioned, non-secret site-configuration contract between
   `my_home` and LaCOS.
 
@@ -1625,8 +1770,9 @@ Implementation in this phase belongs in public `lava-chicken-os`.
 - add the account-neutral `templates/my_home/` starter;
 - package it in the OS and releases;
 - add `docs/CREATE-MY-HOME-GITEA.md`;
-- pin and checksum the official Gitea Helm chart and application/database
-  images;
+- add `docs/TAILSCALE-AUTHENTIK.md` and the read-only `tailscale-setup` skill;
+- pin and checksum the official Tailscale Operator, Authentik, and Gitea Helm
+  charts and all application/database/nameserver images;
 - add preflight, render/policy, private-exposure, backup, restore-drill,
   upgrade, and teardown-check helpers;
 - define the versioned non-secret LaCOS enrollment contract;
@@ -1638,26 +1784,39 @@ Implementation in this phase belongs in public `lava-chicken-os`.
 and render the expected private deployment using only packaged or public
 artifacts, without an account or private repository owned by the maintainer.
 
-### Phase 1B: Deploy or adopt household Gitea
+### Phase 1B: Deploy household identity and Gitea
 
 Rendered configuration and live implementation belong in each household’s
 private `my_home`.
 
-- deploy the pinned starter to the household’s existing k3s or adopt a
-  compatible private Gitea;
+- deploy the pinned Tailscale Operator and Authentik to the household's
+  existing k3s, or adopt compatible private instances;
+- enable MagicDNS/HTTPS, the Phase-0-selected private Authentik path, Gitea's
+  tailnet-only Ingress, local grants, and the pinned in-cluster
+  issuer-resolution path;
+- configure Google as an allowlisted Authentik source and arbitrary-email
+  children through single-use invitations;
+- configure separate Authentik OIDC providers for Gitea and other services,
+  with native Gitea OIDC and no email-based automatic linking;
+- deploy the pinned Gitea starter or adopt a compatible private Gitea;
 - force private repositories and authenticated viewing;
 - disable open registration, mirrors, and Actions for Minecraft projects;
 - create the parent-owned organization and least-privilege child roles;
-- enforce private DNS, TLS/CA, ingress, SSH, firewall, router, IPv4, and IPv6
-  policy;
-- back up and restore repository data plus database metadata;
-- run allowed-client, anonymous-client, cross-user, and external-network
-  acceptance tests.
+- enforce MagicDNS, HTTPS, tailnet grants, no-Funnel ingress, optional SSH,
+  firewall, router, IPv4, and IPv6 policy;
+- back up and restore Authentik configuration/signing material, repository
+  data, and database metadata;
+- run approved-client, Google/invitation, no-auto-link, anonymous, cross-user,
+  off-tailnet, and external-network acceptance tests.
 
-**Exit criterion:** an authenticated child on the home LAN can clone and push,
-while anonymous and external clients cannot discover or reach the service; a
-restore drill on isolated infrastructure recovers a private test repository and
-its metadata.
+**Exit criterion:** an approved child can reach the tailnet-only services, sign
+in through Google or an invited local Authentik account, then clone and push
+with a separate per-user Git credential. Anonymous, off-tailnet, and external
+clients cannot resolve it through the approved private DNS path, reach it, or
+enumerate its contents; generic service hostnames may still appear in public
+Certificate Transparency logs. A restore drill on isolated infrastructure
+recovers identity configuration plus a private test repository and its
+metadata.
 
 ### Phase 2: Local-first Paper and Git vertical slice
 
@@ -1684,11 +1843,16 @@ clean clone without giving LaCOS or Nugget an administrator credential.
 - pre-deploy backup and restore;
 - safe deploy-and-restart flow;
 - LAN-only game firewall;
+- private identity-link broker with authenticated-parent approval;
+- Steam OpenID assertion verification and unique SteamID64 links;
+- a Paper linking plugin that issues redacted, short-lived, single-use codes
+  and binds the online-authenticated Java UUID;
 - logs and failure translation.
 
 **Exit criterion:** a child deploys a committed command and demonstrates it to
-a whitelisted friend on the home LAN; neither Gitea nor the game server is
-publicly reachable.
+a whitelisted friend on the home LAN, then links the intended Java UUID and
+SteamID64 without exposing platform credentials. Replays and collisions fail;
+neither Gitea nor the game server is publicly reachable.
 
 ### Phase 4: Fabric and reproducible Prism Lab
 
@@ -1755,48 +1919,75 @@ lose, or break the family’s known-good Minecraft Lab.
 #### Issue 1: Publish clean-room `my_home` starter and k3s Gitea guide
 
 - packaged, account-neutral starter with no `.git` or remote
-- pinned official Helm chart and images
+- pinned official Tailscale Operator, Authentik, Gitea charts and images
 - kube-context/storage/network/TLS/backup preflight
-- secret-free values and private ingress/NetworkPolicy templates
-- parent/child identity bootstrap
+- secret-free values and tailnet-only Ingress/NetworkPolicy templates
+- Phase-0-selected Tailscale DNS/HTTPS and Authentik/Gitea placeholders
 - LaCOS enrollment contract
 - backup, restore, upgrade, and safe teardown runbooks
 - clean-room CI and private-exposure acceptance script
 
-#### Household-owned downstream task: Deploy or adopt the in-home Gitea
+#### Household-owned downstream task: Deploy identity and the in-home Gitea
 
 Track rendered values and live implementation only in that household’s private
 home repository:
 
 - authenticated/private defaults;
-- parent/child roles and repository bootstrap;
-- LAN-only DNS, TLS, ingress, SSH, firewall, and negative IPv4/IPv6 WAN test;
+- Tailscale Operator, MagicDNS/HTTPS, service tags/grants, Authentik, and Gitea;
+- Google source, invited arbitrary-email children, local roles, and Gitea
+  native OIDC;
+- tailnet-only ingress, optional SSH, no Funnel, firewall, and negative
+  off-tailnet/IPv4/IPv6 WAN tests;
 - no Minecraft-project mirrors;
 - Actions disabled for kid repositories;
-- consistent backup and tested restore.
+- identity, repository, and database backup with tested restore.
 
 The public Epic records only starter/policy version compatibility, not a
 household’s private issue URL, topology, account names, or diagnostic evidence.
 
-#### Issue 2: Record architecture, threat model, and version contract
+#### Issue 2: Add private Tailscale and canonical identity setup
+
+- add and forward-test the `tailscale-setup` Nugget skill
+- make `lacos setup` accept Tailscale DNS and document tailnet split DNS
+- pin the Tailscale Operator and nameserver artifacts
+- add tailnet-only Authentik/Gitea Ingress templates with no Funnel
+- gate the experimental in-cluster MagicDNS path
+- migrate every Authentik issuer/callback away from `home.lab`
+- register and prove the exact Phase-0-selected Google callback with a
+  household test user
+- add off-tailnet/public negative-exposure tests
+
+#### Issue 3: Implement household SSO and external identity links
+
+- one stable Authentik household principal per person
+- allowlisted Google source plus invitation-only arbitrary-email children
+- no open enrollment and no email-based automatic linking
+- parent/child/application groups with local-only role claims
+- separate native OIDC provider per service, including Gitea
+- Gitea browser SSO plus separate per-user Git credentials and deprovisioning
+- private Steam OpenID verification and unique SteamID64 links
+- online-mode Minecraft Java UUID link codes with TTL, single use, and no logs
+- guardian approval, collision/replay tests, audit, backup, and recovery
+
+#### Issue 4: Record architecture, threat model, and version contract
 
 - public LaCOS/private `my_home` ownership
 - local-first/offline behavior
 - identity and credential boundaries
-- LAN-only acceptance tests
+- tailnet-only source-hosting and LAN-only game-server acceptance tests
 - `classroom` and `experimental` tracks
 - exact versions
 - schema validation
 - site-contract versioning
 
-#### Issue 3: Make Java toolchains multi-user and deterministic
+#### Issue 5: Make Java toolchains multi-user and deterministic
 
 - JDK 21
 - JDK 25
 - project toolchain selection
 - remove ambient Gradle dependency
 
-#### Issue 4: Converge Minecraft desktop apps
+#### Issue 6: Converge Minecraft desktop apps
 
 - system Prism
 - system IntelliJ
@@ -1804,7 +1995,7 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - Flatpak access to `~/MinecraftLab`
 - doctor checks
 
-#### Issue 5: Implement `lacos minecraft` and JSON doctor
+#### Issue 7: Implement `lacos minecraft` and JSON doctor
 
 - status
 - toolchain diagnostics
@@ -1812,16 +2003,16 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - offline-safe Git diagnostics
 - human and JSON output
 
-#### Issue 6: Add private Gitea client integration
+#### Issue 8: Add private Gitea client integration
 
 - non-secret site settings
-- home-CA and SSH host verification
+- tailnet transport, MagicDNS, issuer, HTTPS, and optional SSH verification
 - per-user public-key enrollment workflow
 - connect/push/pull/clone
 - no admin token
 - no public mirror
 
-#### Issue 7: Create pinned Paper plugin starter
+#### Issue 9: Create pinned Paper plugin starter
 
 - generator
 - sample command
@@ -1829,7 +2020,7 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - tests
 - build CI
 
-#### Issue 8: Add managed Paper test server
+#### Issue 10: Add managed Paper test server
 
 - isolated service
 - online mode
@@ -1837,28 +2028,28 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - LAN-only firewall
 - lifecycle commands
 
-#### Issue 9: Add server backup and restore
+#### Issue 11: Add server backup and restore
 
 - pre-deploy snapshots
 - metadata
 - retention
 - parent pinning
 
-#### Issue 10: Create pinned Fabric mod starter
+#### Issue 12: Create pinned Fabric mod starter
 
 - generator
 - sample item/block
 - tests/GameTest
 - build CI
 
-#### Issue 11: Generate Prism Vanilla and Lab instances
+#### Issue 13: Generate Prism Vanilla and Lab instances
 
 - exact versions
 - manifest
 - reset/recreate
 - project deployment
 
-#### Issue 12: Generate Vivecraft VR instance
+#### Issue 14: Generate Vivecraft VR instance
 
 - Fabric API
 - Vivecraft
@@ -1866,7 +2057,7 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - transport checks
 - reference GPU defaults
 
-#### Issue 13: Add `minecraft-dev` Nugget skill
+#### Issue 15: Add `minecraft-dev` Nugget skill
 
 - scoped filesystem
 - restricted commands
@@ -1874,14 +2065,14 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - coaching protocol
 - diff review
 
-#### Issue 14: Add curriculum
+#### Issue 16: Add curriculum
 
 - lessons
 - progress state
 - playable outcomes
 - Git checkpoints
 
-#### Issue 15: Add full CI/release gate
+#### Issue 17: Add full CI/release gate
 
 - generated projects build
 - public/private policy suites pass
@@ -1890,7 +2081,9 @@ household’s private issue URL, topology, account names, or diagnostic evidence
 - manual VR result recorded
 - rollback verified
 
-Parent-controlled remote access is deliberately outside this Epic. Propose it
+Parent-controlled remote access to the Paper game server is deliberately
+outside this Epic. Tailscale is the private transport for Authentik and Gitea,
+not permission to expose a child-operated game server. Propose remote play
 later only as a separate threat-model change; never implement public exposure.
 
 ---
@@ -1918,24 +2111,52 @@ Lava Chicken OS may claim “Minecraft Modding Lab” when all of the following 
 
 - Starting with an empty home and no maintainer/GitHub access, a parent can
   initialize a local private `my_home` with no remote.
-- Only public or installed LaCOS artifacts are needed to render and deploy the
-  pinned Gitea stack to the parent’s existing k3s.
+- Only public or installed LaCOS artifacts are needed to render the pinned
+  Tailscale Operator, Authentik, and Gitea stacks for the parent's existing
+  k3s.
 - No generated file contains a maintainer identity, hostname, address, key,
   remote, repository name, or private infrastructure detail.
 - The new `my_home` is pushed only to a private repository on the household’s
   own Gitea after privacy tests pass.
-- Protected off-cluster bootstrap material can rebuild Gitea without first
-  accessing the failed Gitea.
+- Protected off-cluster bootstrap material can rebuild identity and Gitea
+  without first accessing either failed service.
+
+### Household identity
+
+- Every client accepts Tailscale DNS.
+- Authentik and Gitea use separate canonical, Tailscale-resolved,
+  tailnet-only HTTPS names and have no `home.lab`, failed-candidate, Funnel,
+  public ingress, router-forward, or off-tailnet path.
+- An approved child can sign in through Google or an invitation-only local
+  Authentik account with any verified email provider.
+- Email equality never auto-merges people or grants an application role.
+- Gitea and every service use separate native Authentik OIDC providers and
+  parent-managed local authorization claims.
+- A parent can recover through local break-glass accounts and can completely
+  revoke Authentik, Gitea session, token, and SSH access.
 
 ### Private source control
 
-- The child can push and clone through an individual, non-admin identity.
+- The child can use Authentik for the browser and a separate individual,
+  non-admin Git credential to push and clone.
 - Every Minecraft project repository is private and requires authentication.
-- Anonymous and external clients cannot enumerate or reach the service.
+- Anonymous, off-tailnet, and external clients cannot enumerate or reach the
+  service.
 - No Minecraft project has an automatic public mirror.
 - Local commit, build, test, and play continue when Gitea is unavailable.
 - LaCOS and Nugget have no Gitea administrator credential.
 - Gitea source and metadata pass a private backup-and-restore drill.
+
+### Platform identity links
+
+- Steam linking verifies a signed assertion, stores only the unique SteamID64
+  and audit metadata, and requires guardian approval.
+- Minecraft linking starts from an authenticated `online-mode=true` Java server
+  session, uses a short-lived single-use code, and stores the stable Java UUID.
+- The same SteamID64 or Java UUID cannot link to two household principals.
+- Replay, expiry, wrong-session, and collision tests fail closed.
+- No flow collects or retains a platform password, device code, launcher
+  cookie, OAuth authorization code, access/refresh token, or Xbox/XSTS token.
 
 ### Mod project
 
@@ -1986,7 +2207,8 @@ Do not begin with VR.
 The highest-value first milestone is:
 
 > A child creates a Paper project, changes one command, commits and pushes it
-> to a private LAN-only Gitea repository, deploys it to a parent-controlled
+> to a private tailnet-only, Authentik-backed Gitea repository, deploys it to a
+> parent-controlled
 > local Paper server, and a whitelisted friend sees the result.
 
 That milestone proves the motivational core:
@@ -2008,34 +2230,42 @@ VR is the fireworks. The server-side coding loop is the stove.
 ## 23. Immediate work items
 
 1. Add this document and its public tracking Epic to `lava-chicken-os`.
-2. Add `docs/CREATE-MY-HOME-GITEA.md` and the account-neutral
+2. Add `docs/TAILSCALE-AUTHENTIK.md`, the `tailscale-setup` skill, MagicDNS
+   acceptance in `lacos setup`, and the account-neutral
+   `docs/CREATE-MY-HOME-GITEA.md`.
+3. Add the account-neutral
    `templates/my_home/` starter; package the starter for installed and release
    use.
-3. Add clean-room render/policy tests that require no maintainer account,
+4. Add clean-room render/policy tests that require no maintainer account,
    private repository, home topology, or GitHub login.
-4. Record the cross-repository ownership, site-contract version, LAN-only
-   threat model, identity model, and runner exclusion in an ADR.
-5. Exercise both starter paths: a blank-directory deployment on disposable k3s
-   and adoption of an existing private Gitea. Neither private deployment is a
+5. Record the cross-repository ownership, site-contract version, tailnet-only
+   Authentik/Gitea threat model, LAN-only game-server threat model, identity
+   link model, and runner exclusion in an ADR.
+6. Exercise a disposable k3s deployment and adoption of compatible private
+   Tailscale/Authentik/Gitea instances. Neither household deployment is a
    public-release dependency.
-6. Add IntelliJ IDEA Community to `common/bin/lacos-install-apps`.
-7. Split `scripts/60-modding-tools.sh` into:
+7. Prove the exact Google callback, invitation-only child flow, native Gitea
+   OIDC, no-email-auto-link, offboarding, and identity restore.
+8. Add the private Steam OpenID/SteamID64 link flow and online-mode Minecraft
+   Java UUID single-use-code plugin with collision/replay tests.
+9. Add IntelliJ IDEA Community to `common/bin/lacos-install-apps`.
+10. Split `scripts/60-modding-tools.sh` into:
    - legacy bootstrap compatibility;
    - shared JDK provisioning;
    - project/profile creation through `lacos minecraft`.
-8. Remove `sdk install gradle`.
-9. Install and manage JDK 21 and 25.
-10. Add `common/minecraft/versions.toml`.
-11. Replace branch clones with pinned starter kits.
-12. Add `common/bin/lacos-minecraft` and route it through `common/bin/lacos`.
-13. Implement `lacos minecraft doctor --json`, including offline-safe private
+11. Remove `sdk install gradle`.
+12. Install and manage JDK 21 and 25.
+13. Add `common/minecraft/versions.toml`.
+14. Replace branch clones with pinned starter kits.
+15. Add `common/bin/lacos-minecraft` and route it through `common/bin/lacos`.
+16. Implement `lacos minecraft doctor --json`, including offline-safe private
     Git status with redacted output.
-14. Add the Paper starter, local Git initialization, and private Gitea
+17. Add the Paper starter, local Git initialization, and private Gitea
     connect/push/clone flow before expanding NeoForge support.
-15. Add a managed LAN-only Paper server.
-16. Generate reproducible Prism Lab and Vivecraft profiles from one version set.
-17. Split coaching from code-writing into separate Nugget skills.
-18. Gate classroom track updates on the public scaffold tests plus the
+18. Add a managed LAN-only Paper server.
+19. Generate reproducible Prism Lab and Vivecraft profiles from one version set.
+20. Split coaching from code-writing into separate Nugget skills.
+21. Gate classroom track updates on the public scaffold tests plus the
     household-run private acceptance script, generated builds, server/profile
     validation, manual hardware tests, and rollback.
 
@@ -2051,6 +2281,8 @@ VR is the fireworks. The server-side coding loop is the stove.
 - [Current app convergence](../common/bin/lacos-install-apps)
 - [Current `lacos` command](../common/bin/lacos)
 - [Current modding skill](../common/newt-skills/modding/SKILL.md)
+- [Private Tailscale and Authentik runbook](TAILSCALE-AUTHENTIK.md)
+- [Tailscale setup coaching skill](../common/newt-skills/tailscale-setup/SKILL.md)
 - [Current VR command](../common/bin/lacos-vr)
 - [Current VR coaching skill](../common/newt-skills/vr-setup/SKILL.md)
 
@@ -2065,6 +2297,23 @@ VR is the fireworks. The server-side coding loop is the stove.
 - [k3s secrets encryption](https://docs.k3s.io/security/secrets-encryption)
 - [k3s backup and restore](https://docs.k3s.io/datastore/backup-restore)
 
+### Tailnet and household identity
+
+- [Tailscale Kubernetes Operator installation](https://tailscale.com/docs/kubernetes-operator/install-operator)
+- [Tailscale private Kubernetes Ingress](https://tailscale.com/docs/kubernetes-operator/ingress/expose-workload-to-tailnet-l7)
+- [Tailscale `ProxyGroup` concepts](https://tailscale.com/docs/kubernetes-operator/concepts/proxygroup)
+- [Tailscale in-cluster MagicDNS](https://tailscale.com/docs/kubernetes-operator/concepts/dnsconfig)
+- [Tailscale custom-domain Gateway pattern](https://tailscale.com/docs/solutions/kubernetes-operator-byod-gateway-api)
+- [Tailscale client DNS preferences](https://tailscale.com/docs/features/client/manage-preferences)
+- [Authentik Google OAuth source](https://docs.goauthentik.io/users-sources/sources/social-logins/google/cloud/)
+- [Authentik invitations](https://docs.goauthentik.io/users-sources/user/invitations/)
+- [Authentik unique-email expression policy](https://docs.goauthentik.io/customize/policies/types/expression/unique_email/)
+- [Authentik OAuth/OIDC provider](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/)
+- [Authentik Gitea integration](https://integrations.goauthentik.io/services/gitea/)
+- [Google OAuth redirect validation](https://support.google.com/cloud/answer/15549257)
+- [Google OAuth production-domain policy](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance)
+- [Steam user authentication and OpenID](https://partner.steamgames.com/doc/features/auth)
+
 ### Minecraft mod and plugin development
 
 - [Fabric documentation](https://docs.fabricmc.net/)
@@ -2073,6 +2322,8 @@ VR is the fireworks. The server-side coding loop is the stove.
 - [NeoForge documentation](https://docs.neoforged.net/)
 - [PaperMC project setup](https://docs.papermc.io/paper/dev/project-setup/)
 - [PaperMC plugin metadata](https://docs.papermc.io/paper/dev/plugin-yml/)
+- [Paper `server.properties` and online mode](https://docs.papermc.io/paper/reference/server-properties/)
+- [Mojang Java Game Service API review](https://help.minecraft.net/hc/en-us/articles/16254801392141)
 
 ### Launcher and VR
 

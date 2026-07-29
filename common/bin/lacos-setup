@@ -7,6 +7,7 @@ set -uo pipefail
 
 SITE=/etc/lava-chicken/site.conf
 STAMP=/etc/lava-chicken/setup.done
+STATE=/var/lib/lava-chicken
 # shellcheck source=/dev/null
 [ -r "$SITE" ] && . "$SITE" 2>/dev/null || true      # prefill prior answers
 
@@ -26,9 +27,71 @@ save() { # key value -> persist non-secret answer
   sudo sed -i "/^$1=/d" "$SITE" 2>/dev/null || true
   printf '%s=%q\n' "$1" "$2" | sudo tee -a "$SITE" >/dev/null
 }
+valid_dns_name() { # strict, unqualified-trailing-dot-free DNS name
+  local name="$1" label
+  local -a labels
+  [[ -n "$name" && ${#name} -le 253 && "$name" == *.* ]] || return 1
+  [[ "$name" != .* && "$name" != *. ]] || return 1
+  IFS=. read -r -a labels <<<"$name"
+  for label in "${labels[@]}"; do
+    [[ -n "$label" && ${#label} -le 63 ]] || return 1
+    [[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || return 1
+  done
+}
+is_tailnet_address() { # Tailscale IPv4 CGNAT or stable IPv6 ULA prefix
+  local address="${1,,}" second
+  if [[ "$address" =~ ^100\.([0-9]{1,3})\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    second="${BASH_REMATCH[1]}"
+    (( 10#$second >= 64 && 10#$second <= 127 ))
+  else
+    [[ "$address" == fd7a:115c:a1e0:* ]]
+  fi
+}
+address_routes_over_tailnet() {
+  local address="$1" route
+  is_tailnet_address "$address" || return 1
+  if [[ "$address" == *:* ]]; then
+    route="$(ip -6 route get "$address" 2>/dev/null || true)"
+  else
+    route="$(ip -4 route get "$address" 2>/dev/null || true)"
+  fi
+  [[ " $route " == *" dev tailscale0 "* ]]
+}
+name_routes_over_tailnet() { # system DNS answer must use the Tailscale interface
+  local name="$1" address ignored found=false
+  while read -r address ignored; do
+    [ -n "$address" ] || continue
+    address_routes_over_tailnet "$address" || return 1
+    found=true
+  done < <(getent ahosts "$name" 2>/dev/null)
+  "$found"
+}
+verify_tailnet_https_origin() { # inspect each redirect before following it
+  local host="$1" url result effective remote_ip status redirect hop
+  url="https://${host}/"
+  for ((hop = 0; hop <= 5; hop++)); do
+    result="$(curl --fail --silent --show-error --max-time 15 \
+      --proto '=https' --noproxy '*' --output /dev/null \
+      --write-out $'%{url_effective}\t%{remote_ip}\t%{http_code}\t%{redirect_url}' \
+      "$url")" || return 1
+    IFS=$'\t' read -r effective remote_ip status redirect <<<"$result"
+    [[ "$effective" == "https://${host}/"* ]] || return 1
+    address_routes_over_tailnet "$remote_ip" || return 1
+    case "$status" in
+      2??) return 0 ;;
+      3??)
+        [[ "$redirect" == "https://${host}/"* ]] || return 1
+        url="$redirect"
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  return 1
+}
 
 sudo -v || { echo "This wizard needs sudo — run it as an admin." >&2; exit 1; }
 say "LaCOS setup — configure this box's particulars. Ctrl-C to bail; safe to re-run."
+setup_ready=true
 
 # 1) name -------------------------------------------------------------------
 NAME="$(ask "Machine / agent name?" "${LAVA_BOX_NAME:-$(hostname)}")"
@@ -52,6 +115,7 @@ fi
 
 # 3) Tailscale? -------------------------------------------------------------
 if ask_yesno "Do you use Tailscale (mesh VPN / remote access)?"; then
+  tailscale_ok=false
   if ! command -v tailscale >/dev/null 2>&1; then
     say "installing tailscale ..."
     sudo rpm-ostree install --apply-live --idempotent tailscale 2>/dev/null \
@@ -63,31 +127,106 @@ if ask_yesno "Do you use Tailscale (mesh VPN / remote access)?"; then
     # Bazzite SHIPS tailscale with the daemon disabled — `tailscale up` fails
     # without this (hardware-day finding, #30).
     sudo systemctl enable --now tailscaled 2>/dev/null || true
-    key="$(ask "Tailscale auth key (blank = open a browser login link)?" "")"
-    # --accept-dns=false so a home DNS (below) isn't shadowed by MagicDNS.
-    if [ -n "$key" ]; then
-      sudo tailscale up --accept-routes --accept-dns=false --hostname="$NAME" --authkey="$key" \
-        && say "joined the tailnet as $NAME"
+    # Keep Tailscale DNS enabled. Household zones belong in Tailscale split DNS
+    # (and the local resolver route below), rather than disabling MagicDNS.
+    tailscale_enrolled=false
+    if ! tailscale status --peers=false >/dev/null 2>&1 \
+      || ! tailscale ip -4 >/dev/null 2>&1; then
+      say "Follow the login URL Tailscale prints; this wizard never accepts an auth key:"
+      sudo tailscale up || true
+    fi
+    if tailscale status --peers=false >/dev/null 2>&1 \
+      && tailscale ip -4 >/dev/null 2>&1 \
+      && sudo tailscale set --accept-routes=true --accept-dns=true --hostname="$NAME"; then
+      tailscale_enrolled=true
+    fi
+
+    if "$tailscale_enrolled" \
+      && tailscale ip -4 >/dev/null 2>&1 \
+      && sudo tailscale dns status >/dev/null 2>&1; then
+      tailscale_ok=true
+      say "joined the tailnet as $NAME; Tailscale DNS acceptance verified"
     else
-      say "Follow the login URL Tailscale prints:"
-      sudo tailscale up --accept-routes --accept-dns=false --hostname="$NAME"
+      say "Tailscale enrollment or DNS verification failed; not recording this step as ready."
     fi
   fi
-  save LAVA_TAILSCALE yes
+
+  if "$tailscale_ok"; then
+    save LAVA_TAILSCALE yes
+    say "Keep Authentik on one canonical, private, Tailscale-resolved HTTPS name."
+    auth_fqdn="$(ask "Canonical Authentik FQDN to verify (blank if not deployed yet)?" "${LAVA_AUTHENTIK_FQDN:-}")"
+    if [ -n "$auth_fqdn" ]; then
+      auth_fqdn="${auth_fqdn,,}"
+      if valid_dns_name "$auth_fqdn" \
+        && [[ "$auth_fqdn" != "home.lab" && "$auth_fqdn" != *".home.lab" ]] \
+        && sudo tailscale dns query -- "$auth_fqdn" >/dev/null 2>&1 \
+        && name_routes_over_tailnet "$auth_fqdn" \
+        && verify_tailnet_https_origin "$auth_fqdn"; then
+        save LAVA_AUTHENTIK_FQDN "$auth_fqdn"
+        say "canonical Authentik tailnet DNS and HTTPS verified"
+      else
+        save LAVA_AUTHENTIK_FQDN ""
+        setup_ready=false
+        say "Authentik verification failed; do not configure Google or OIDC clients yet."
+      fi
+    fi
+  else
+    save LAVA_TAILSCALE pending
+    setup_ready=false
+  fi
 else save LAVA_TAILSCALE no; fi
 
 # 4) home DNS? --------------------------------------------------------------
 if ask_yesno "Do you have a home DNS / custom LAN domain (e.g. home.arpa)?"; then
   dom="$(ask "LAN domain?" "${LAVA_LAN_DOMAIN:-home.arpa}")"
+  dom="${dom,,}"
   dns="$(ask "DNS server IP that serves $dom?" "${LAVA_LAN_DNS:-}")"
-  sudo install -d -m0755 /etc/systemd/resolved.conf.d
-  printf '[Resolve]\nDNS=%s\nDomains=~%s\n' "$dns" "$dom" \
-    | sudo tee /etc/systemd/resolved.conf.d/10-lava-chicken-lan.conf >/dev/null
-  sudo systemctl restart systemd-resolved 2>/dev/null || true
-  say "split-DNS: *.$dom -> $dns"
-  say "ACTION on your DNS server (e.g. dnsmasq): add  address=/$NAME.$dom/<this box's IP>"
-  save LAVA_LAN_DOMAIN "$dom"; save LAVA_LAN_DNS "$dns"
-else save LAVA_LAN_DOMAIN ""; fi
+  dns_route_ok=false
+  if [[ "$dns" == *:* ]]; then
+    ip -6 route get "$dns" >/dev/null 2>&1 && dns_route_ok=true
+  elif [ -n "$dns" ]; then
+    ip -4 route get "$dns" >/dev/null 2>&1 && dns_route_ok=true
+  fi
+  if valid_dns_name "$dom" \
+    && [[ "$dom" != "ts.net" && "$dom" != *".ts.net" ]] \
+    && "$dns_route_ok"; then
+    dns_tmp="$(mktemp)" || dns_tmp=""
+    dns_configured=false
+    if [ -n "$dns_tmp" ] \
+      && printf '[Resolve]\nDNS=%s\nDomains=~%s\n' "$dns" "$dom" >"$dns_tmp" \
+      && sudo install -d -m0755 /etc/systemd/resolved.conf.d \
+      && sudo install -m0644 "$dns_tmp" \
+        /etc/systemd/resolved.conf.d/10-lava-chicken-lan.conf \
+      && sudo systemctl restart systemd-resolved 2>/dev/null; then
+      dns_configured=true
+    fi
+    [ -z "$dns_tmp" ] || rm -f "$dns_tmp"
+    if "$dns_configured" \
+      && save LAVA_LAN_DOMAIN "$dom" \
+      && save LAVA_LAN_DNS "$dns"; then
+      say "split-DNS: *.$dom -> $dns"
+      say "ACTION in the Tailscale DNS console: add split DNS for $dom -> $dns so every tailnet client agrees."
+      say "The DNS server must be a tailnet node or reachable through an approved subnet route/grant; test it from an off-LAN tailnet client."
+      say "ACTION on your DNS server (e.g. dnsmasq): add  address=/$NAME.$dom/<this box's IP>"
+    else
+      setup_ready=false
+      say "couldn't apply and record the LAN split-DNS route; fix systemd-resolved and re-run setup."
+    fi
+  else
+    setup_ready=false
+    say "invalid or unreachable LAN domain/DNS server; existing resolver configuration was left unchanged."
+  fi
+else
+  if sudo rm -f /etc/systemd/resolved.conf.d/10-lava-chicken-lan.conf \
+    && sudo systemctl restart systemd-resolved 2>/dev/null \
+    && save LAVA_LAN_DOMAIN "" \
+    && save LAVA_LAN_DNS ""; then
+    say "LaCOS LAN split-DNS is disabled"
+  else
+    setup_ready=false
+    say "couldn't remove and record the LAN split-DNS route; saved LAN state was left unchanged where possible."
+  fi
+fi
 
 # 5) WireGuard streaming? ---------------------------------------------------
 if ask_yesno "Use WireGuard for low-latency game streaming (Sunshine/Moonlight)?"; then
@@ -105,6 +244,7 @@ if ask_yesno "Set up kid accounts (passwordless local users, no admin rights)?";
     if sudo LAVA_KID_USERS="$kids" LAVA_AUTOLOGIN_USER="$auto" bash "$PROV/30-users.sh"; then
       say "kid accounts ready: $kids (autologin: $auto)"
     else
+      setup_ready=false
       say "kid-account step failed — re-run: sudo LAVA_KID_USERS='$kids' bash $PROV/30-users.sh"
     fi
     save LAVA_KID_USERS "$kids"; save LAVA_AUTOLOGIN_USER "$auto"
@@ -128,5 +268,11 @@ if [ -n "${MODELS// /}" ]; then
   fi
 fi
 
-date -u +%FT%TZ | sudo tee "$STAMP" >/dev/null
-say "✓ setup complete. Answers saved to $SITE — re-run 'lacos setup' any time."
+if "$setup_ready"; then
+  date -u +%FT%TZ | sudo tee "$STAMP" >/dev/null
+  say "✓ setup complete. Answers saved to $SITE — re-run 'lacos setup' any time."
+else
+  sudo rm -f "$STAMP"
+  say "Setup is incomplete, so the completion stamp was not written. Fix the reported step and re-run 'lacos setup'."
+  exit 1
+fi

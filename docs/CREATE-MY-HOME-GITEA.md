@@ -4,7 +4,8 @@
 
 **Status:** pre-implementation operator blueprint and acceptance contract
 
-**Scope:** private, home-LAN-only source hosting for Lava Chicken OS projects
+**Scope:** private, tailnet-only source hosting and Authentik SSO for Lava
+Chicken OS projects
 **Last reviewed:** July 29, 2026
 
 This guide does not require the project maintainer’s GitHub account, private
@@ -19,7 +20,9 @@ Gitea to your own existing k3s cluster.
 > artifacts must implement; do not deploy from empty placeholder files.
 
 `my_home` is only a suggested name. It is your repository. You may rename it,
-keep it entirely off GitHub, and use any private home domain and address plan.
+keep it entirely off GitHub, and use your own private address plan. A local
+domain may still serve unrelated LAN devices, but Authentik's issuer and
+callbacks use only the Tailscale-resolved name selected by the runbook.
 
 The target result is:
 
@@ -32,13 +35,23 @@ your private k3s cluster
   |
   +-- PostgreSQL + durable storage
   +-- Gitea + durable storage
-  +-- private HTTPS ingress
+  +-- Tailscale Operator + private HTTPS MagicDNS ingress
+  +-- Authentik OIDC + parent-approved household identities
   +-- optional separately protected Git/SSH endpoint
   +-- encrypted off-cluster backup
 
-allowed home-LAN LaCOS client ----> private Gitea
-anonymous or external client ----X
+approved tailnet LaCOS client ----------> private Gitea
+          |                                  |
+          +-- browser OIDC redirects --------+
+          v                                  |
+       Authentik <--- discovery/code exchange+
+
+off-tailnet or unapproved client ----------------X
 ```
+
+Authentik brokers identity; it is not in the application data path. Normal
+Gitea page and Git traffic goes directly to Gitea. Only browser OIDC redirects
+and Gitea's discovery/code exchange go to Authentik.
 
 Gitea is a collaboration and recovery service. It is not required to edit,
 commit, build, test, or locally play a Minecraft project. A Gitea outage must
@@ -51,15 +64,24 @@ leave those local workflows working.
 The first supported configuration is deliberately narrow:
 
 - an existing k3s cluster owned by the household;
-- web access from explicitly allowed home-LAN sources only;
-- no public DNS record;
+- web access through Tailscale from explicitly allowed household devices only;
+- MagicDNS and Tailscale DNS accepted by every client;
+- Authentik on the one canonical, tailnet-only HTTPS name selected by the
+  runbook's Google compatibility gate and resolved through Tailscale DNS;
+- Gitea on a separate tailnet-only HTTPS `*.ts.net` name;
+- native Authentik OIDC for Gitea, with a local parent-owned break-glass
+  administrator;
+- no public A/AAAA/CNAME service record or internet route;
 - no router/NAT port forward;
 - no UPnP mapping;
 - no public tunnel, Funnel, or reverse-proxy route;
 - external IPv4 and IPv6 traffic denied;
-- TLS from a household-controlled CA;
-- registration disabled and sign-in required;
-- parent-owned organization and separate non-admin child accounts;
+- publicly trusted TLS provisioned by the Tailscale Ingress, without making the
+  service public;
+- local username/password registration disabled, approved Authentik OIDC
+  provisioning only, and sign-in required;
+- invitation/approval-only Authentik enrollment, a parent-owned organization,
+  and separate non-admin child principals;
 - every repository private;
 - repository migration, mirrors, webhooks, custom Git hooks, and Actions
   disabled for the first release;
@@ -68,13 +90,14 @@ The first supported configuration is deliberately narrow:
 - exact chart and image versions;
 - encrypted, off-cluster backups with a tested restore.
 
-Private DNS is naming, not access control. k3s normally deploys Traefik through
-ServiceLB, which can bind ports 80 and 443 on every eligible node. Restrict the
-ingress nodes and addresses, then enforce the same private-source rule at the
-ingress, node firewall, and router.
+MagicDNS is naming, not the only access control. Tailnet grants, Authentik
+policy, Kubernetes NetworkPolicy, node policy, and negative external tests all
+remain required. k3s normally deploys Traefik through ServiceLB, which can bind
+ports 80 and 443 on every eligible node; Gitea and Authentik must not be routed
+through that ordinary ingress.
 
-VPN access is outside this baseline. Add it only after a separate parent-owned
-threat-model review. Never turn it into public access.
+Tailscale access is the baseline private transport. It is not permission to use
+Funnel, a public reverse proxy, or any other internet ingress.
 
 ---
 
@@ -84,12 +107,19 @@ Have these ready before creating anything:
 
 - a working k3s cluster reachable only through an administrator-controlled
   path;
+- a household-owned Tailscale tailnet with MagicDNS and HTTPS enabled;
+- the pinned Tailscale Kubernetes Operator and narrowly scoped operator OAuth
+  credentials stored outside Git;
+- a pinned private Authentik deployment, canonical tailnet FQDN, and tested
+  recovery path as described in
+  [Private Tailscale, Authentik, and Household SSO](TAILSCALE-AUTHENTIK.md);
 - `kubectl` configured for that cluster;
 - Helm 3;
 - a durable `StorageClass` suitable for PostgreSQL and Gitea;
-- a private ingress address or private ingress node pool;
-- control of internal DNS;
-- a home CA and a server certificate plan;
+- a tailnet policy granting only approved household devices access to the
+  identity and Gitea service tags;
+- a reviewed in-cluster MagicDNS path so Gitea can validate and reach the same
+  Authentik issuer;
 - a password manager;
 - k3s Secrets encryption at rest whenever Kubernetes Secret objects are used,
   or a secret-injection mechanism proven never to persist plaintext in the
@@ -285,12 +315,14 @@ Tracked example files use obvious, non-secret placeholders:
 
 | Placeholder | Meaning |
 |---|---|
-| `REPLACE_PRIVATE_LAN_CIDR` | allowed home LAN source range |
-| `REPLACE_GITEA_WEB_HOST` | internal-only Gitea web name |
-| `REPLACE_GITEA_SSH_HOST` | internal-only Git/SSH name |
+| `REPLACE_AUTHENTIK_TAILNET_FQDN` | exact private Authentik FQDN selected by the runbook's Google Phase 0 gate and resolved through Tailscale DNS |
+| `REPLACE_GITEA_TAILNET_FQDN` | exact private Gitea MagicDNS FQDN reported by its Tailscale Ingress |
+| `REPLACE_IDENTITY_SERVICE_TAG` | parent-defined tailnet tag for Authentik ingress |
+| `REPLACE_GITEA_SERVICE_TAG` | parent-defined tailnet tag for Gitea ingress |
+| `REPLACE_GITEA_OIDC_CLIENT_ID` | non-secret Gitea OIDC client identifier |
+| `REPLACE_GITEA_OIDC_SECRET_NAME` | private Secret reference containing the Gitea OIDC client secret |
+| `REPLACE_GITEA_SSH_HOST` | optional tailnet-only Git/SSH name |
 | `REPLACE_GITEA_SSH_PORT` | optional private Git/SSH port |
-| `REPLACE_PRIVATE_INGRESS_IP` | private ingress address |
-| `REPLACE_INGRESS_CLASS` | the household’s private ingress class |
 | `REPLACE_STORAGE_CLASS` | durable k3s storage class |
 | `REPLACE_BACKUP_DESTINATION` | encrypted off-cluster target |
 | `REPLACE_PARENT_ADMIN_USER` | local break-glass administrator |
@@ -298,9 +330,7 @@ Tracked example files use obvious, non-secret placeholders:
 | `REPLACE_MINECRAFT_ORG` | parent-owned Gitea organization |
 | `REPLACE_GITEA_IMAGE_DIGEST_HEX` | raw hexadecimal part of the pinned rootless Gitea image digest |
 | `REPLACE_POSTGRES_IMAGE_DIGEST_HEX` | raw hexadecimal part of the pinned PostgreSQL image digest |
-| `REPLACE_TLS_SECRET_NAME` | Kubernetes TLS Secret name |
 | `REPLACE_GITEA_SSH_HOST_KEY_SHA256` | complete pinned OpenSSH host-key fingerprint, including `SHA256:` |
-| `REPLACE_TLS_CA_SHA256` | complete pinned SHA-256 fingerprint of the household’s public CA certificate |
 
 The values policy already supplies the `sha256:` image-digest prefix. Replace
 the two `_DIGEST_HEX` placeholders with hexadecimal characters only.
@@ -377,6 +407,7 @@ kubectl get storageclass
 kubectl -n kube-system get service traefik -o wide
 kubectl get service --all-namespaces
 kubectl get ingressclass
+kubectl --namespace tailscale get deployment,pod
 ```
 
 Record the intended context name in the ignored local values. The deploy helper
@@ -385,7 +416,8 @@ must:
 1. compare the active context with that intended value;
 2. print the cluster API endpoint and node names;
 3. show the selected storage and ingress classes;
-4. show existing LoadBalancer, NodePort, and host-port exposure;
+4. show existing LoadBalancer, NodePort, host-port, ordinary Ingress, and
+   Tailscale Ingress exposure;
 5. stop for explicit parent confirmation.
 
 Never let a script install to “whatever context is current.”
@@ -407,54 +439,103 @@ Check that:
 - there is enough persistent capacity for repositories, LFS, attachments,
   releases, and PostgreSQL;
 - the backup destination is not the same PVC, disk, or node;
-- no public ingress controller will accept the planned Gitea host.
+- no ordinary or public ingress controller will accept the planned Gitea or
+  Authentik host;
+- the Tailscale Operator has only the intended tag and credential scopes;
+- MagicDNS and HTTPS are enabled and the private service tags have explicit
+  grants.
 
 ---
 
-## 7. Choose private DNS, TLS, and optional SSH
+## 7. Choose canonical tailnet DNS, HTTPS, and optional SSH
 
-Use an internal-only name, for example:
+First deploy Authentik using
+[the tailnet identity runbook](TAILSCALE-AUTHENTIK.md). Record the exact
+canonical address selected and verified by its Google Phase 0 gate:
 
 ```text
-git.home.arpa
+https://REPLACE_AUTHENTIK_TAILNET_FQDN
 ```
 
-The example is not a required name. Put the chosen record only in the
-household’s private DNS.
+Do not use `authentik.home.lab`, an IP address, a Kubernetes Service name, or a
+home-CA alias as the Authentik issuer.
 
-From a LAN client, the name must resolve to the private ingress address. From a
-public resolver, it must return no address:
+Gitea gets its own Tailscale Ingress and exact MagicDNS address:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitea-tailnet
+  namespace: gitea
+  annotations:
+    tailscale.com/proxy-group: "household-ingress-proxies"
+    tailscale.com/tags: "tag:REPLACE_GITEA_SERVICE_TAG"
+spec:
+  ingressClassName: tailscale
+  tls:
+    - hosts:
+        - gitea
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitea-http
+                port:
+                  number: 3000
+```
+
+There is deliberately no `tailscale.com/funnel` annotation. Keep the chart's
+ordinary ingress disabled and the HTTP backend `ClusterIP`.
+
+The runbook's pinned ingress `ProxyGroup` advertises this separate Gitea
+service tag. The operator must own both tags, the private
+`autoApprovers.services` policy must allow only that proxy tag to advertise
+this service tag, and tailnet grants must allow only approved household users
+to reach it. Do not enable a static-endpoint `ProxyClass`; that is outside the
+no-NodePort baseline.
+
+After the parent applies the private manifest:
 
 ```bash
-GITEA_WEB_HOST="git.home.arpa"
-dig +short "${GITEA_WEB_HOST}" A
-dig +short "${GITEA_WEB_HOST}" AAAA
-dig +short @1.1.1.1 "${GITEA_WEB_HOST}" A
-dig +short @1.1.1.1 "${GITEA_WEB_HOST}" AAAA
+kubectl --namespace gitea get ingress gitea-tailnet
 ```
 
-Issue a server certificate containing the private name as a SAN. Keep the home
-CA root private key encrypted and off-cluster. Put only the server certificate
-and key in the Kubernetes TLS Secret, and distribute only the public CA
-certificate to trusted clients.
+Copy the exact `ADDRESS` into the ignored local values as
+`REPLACE_GITEA_TAILNET_FQDN`. Do not synthesize it from the tailnet name. The
+first HTTPS request may wait while the Tailscale Ingress provisions its
+certificate.
 
-Never use:
+From an approved client with Tailscale DNS enabled:
+
+```bash
+GITEA_FQDN="REPLACE_GITEA_TAILNET_FQDN"
+resolvectl query "${GITEA_FQDN}"
+curl --fail --silent --show-error --max-time 15 \
+  "https://${GITEA_FQDN}/api/healthz"
+```
+
+The check must pass without:
 
 ```text
 curl -k
 GIT_SSL_NO_VERIFY=true
 StrictHostKeyChecking=no
-blind ssh-keyscan as trust establishment
+hosts-file overrides
 ```
 
-The Helm baseline keeps both Gitea Services at `ClusterIP`. Standard HTTP
-Ingress does not carry SSH.
+Disconnect Tailscale and prove the same endpoint is unreachable. Also inspect
+all ordinary Ingress, LoadBalancer, NodePort, host-port, public DNS, router,
+UPnP, IPv4, and IPv6 paths.
 
-For the first deployment, HTTPS Git through the private ingress is sufficient.
-If you add Git/SSH, expose it through a separate private load-balancer or TCP
-route with a private address and a source allowlist. Persist the Gitea SSH host
-keys and enroll their fingerprints through the parent-run trust flow. Do not
-open a broad NodePort merely because it is convenient.
+The Helm baseline keeps both Gitea Services at `ClusterIP`. The first release
+uses HTTPS Git through the private Tailscale Ingress. If Git/SSH is added later,
+expose it as a separately tagged, tailnet-only Tailscale service with a narrow
+grant. Persist its host keys and enroll fingerprints through a parent-run trust
+flow. Do not open an ordinary LoadBalancer or broad NodePort.
 
 ---
 
@@ -465,7 +546,7 @@ The baseline needs:
 - a Gitea break-glass administrator username and password;
 - a PostgreSQL administrator password;
 - a PostgreSQL Gitea-user password;
-- the TLS server certificate and key;
+- a separate Gitea/Authentik OIDC client secret;
 - Gitea-generated encryption and signing material that must survive restore.
 
 Generate and store credentials in the parent’s password manager. If the
@@ -503,8 +584,8 @@ objects, k3s datastore encryption at rest is still required because the API
 stores their decrypted values. Treat a mechanism as an alternative only when
 it mounts or injects secrets without ever persisting plaintext in the
 Kubernetes API or datastore, and verify that the pinned chart supports that
-mechanism. Keep the age decryption key and CA root key outside both Git and the
-cluster.
+mechanism. Keep the age decryption key, Authentik/Gitea recovery credentials,
+and tailnet recovery material outside both Git and the cluster.
 
 ---
 
@@ -606,8 +687,8 @@ gitea:
 
   config:
     server:
-      DOMAIN: "REPLACE_GITEA_WEB_HOST"
-      ROOT_URL: "https://REPLACE_GITEA_WEB_HOST/"
+      DOMAIN: "REPLACE_GITEA_TAILNET_FQDN"
+      ROOT_URL: "https://REPLACE_GITEA_TAILNET_FQDN/"
       PUBLIC_URL_DETECTION: never
       DISABLE_SSH: true
       START_SSH_SERVER: false
@@ -618,7 +699,11 @@ gitea:
       DISABLE_WEBHOOKS: true
 
     service:
-      DISABLE_REGISTRATION: true
+      # Gitea must leave the registration pipeline enabled for OIDC
+      # auto-provisioning, then restrict that pipeline to external sources.
+      DISABLE_REGISTRATION: false
+      ALLOW_ONLY_EXTERNAL_REGISTRATION: true
+      SHOW_REGISTRATION_BUTTON: false
       REQUIRE_SIGNIN_VIEW: true
       DEFAULT_KEEP_EMAIL_PRIVATE: true
       DEFAULT_ALLOW_CREATE_ORGANIZATION: false
@@ -657,9 +742,16 @@ gitea:
       ENABLE_OPENID_SIGNIN: false
       ENABLE_OPENID_SIGNUP: false
 
+    oauth2_client:
+      ENABLE_AUTO_REGISTRATION: true
+      USERNAME: userid
+      ACCOUNT_LINKING: disabled
+      REGISTER_EMAIL_CONFIRM: false
+
     session:
       COOKIE_SECURE: true
-      SAME_SITE: strict
+      # OIDC uses a top-level cross-site callback; Strict breaks its state cookie.
+      SAME_SITE: lax
 
 valkey-cluster:
   enabled: false
@@ -670,6 +762,47 @@ valkey:
 
 Do not paste database or administrator passwords into this file.
 
+The `openid` block above disables Gitea's legacy OpenID sign-in/sign-up
+surface. Authentik is added as a native OAuth2/OpenID Connect authentication
+source using the admin interface, pinned CLI, or a reviewed one-time bootstrap
+job for the exact Gitea release. Do not put its client secret in `app.ini`,
+tracked values, or a command-line argument.
+
+`DISABLE_REGISTRATION` must remain `false` because Gitea otherwise permits only
+an administrator to create accounts. `ALLOW_ONLY_EXTERNAL_REGISTRATION`,
+`SHOW_REGISTRATION_BUTTON`, and the single reviewed Authentik authentication
+source remove local self-signup; `ENABLE_AUTO_REGISTRATION` then creates a
+restricted Gitea account only after that source accepts the parent-managed
+claim. `USERNAME: userid` derives the immutable Gitea username from OIDC
+`sub`, rather than mutable or collision-prone email. Do not add an
+authentication source without the same required-claim review.
+
+The Authentik source contract is:
+
+```text
+name: authentik
+provider: OpenID Connect
+discovery:
+  https://REPLACE_AUTHENTIK_TAILNET_FQDN/application/o/gitea/.well-known/openid-configuration
+callback:
+  https://REPLACE_GITEA_TAILNET_FQDN/user/oauth2/authentik/callback
+required claim name:
+  gitea_access
+required claim value:
+  member
+automatic account linking:
+  disabled
+```
+
+Use a confidential client and Authentik's default per-provider issuer mode.
+Create an Authentik property/scope mapping named `gitea_access` that returns
+the literal string `member` only when the current user belongs to the local,
+parent-managed `gitea-users` group; omit the claim otherwise. Configure
+Gitea's sole OAuth source with exact `required-claim-name=gitea_access` and
+`required-claim-value=member`. Do not configure automatic admin/restricted
+group mapping. Google email/domain claims must not authorize registration or
+elevation.
+
 The policy checker has separate public-fixture and household modes. Both modes
 must reject:
 
@@ -678,7 +811,8 @@ must reject:
 - any credential, token, password, private key, or kubeconfig embedded in
   allowlisted chart-generated configuration or init-script Secrets;
 - NodePort or public LoadBalancer services;
-- public ingress hosts;
+- any ordinary/public Ingress, any Funnel annotation, or a Tailscale Ingress
+  outside the exact approved service/tag allowlist;
 - privileged pods or host mounts;
 - automatic service-account tokens;
 - an Actions runner or enabled Actions repository unit;
@@ -689,10 +823,11 @@ must reject:
 
 Public-fixture CI uses only reserved synthetic values and also rejects any real
 household literal. Household mode permits the schema-defined non-secret site
-values—such as the private hostname, LAN range, and parent-selected local
-email—only at exact, chart-versioned key paths where the pinned chart requires
-them. It rejects those values everywhere else. Rendered household manifests and
-checker evidence remain private and are never uploaded to public CI or issues.
+values—such as the private tailnet FQDNs, service tags, and parent-selected
+local email—only at exact, chart-versioned key paths where the pinned chart
+requires them. It rejects those values everywhere else. Rendered household
+manifests and checker evidence remain private and are never uploaded to public
+CI or issues.
 
 Some security-context settings may require adjustment for a particular storage
 driver. Make the smallest documented change, render it, and preserve
@@ -758,13 +893,16 @@ Use this order:
 6. install the pinned chart with both Services at `ClusterIP` and ingress off;
 7. wait for PostgreSQL and Gitea;
 8. test `/api/healthz` through a local `kubectl port-forward`;
-9. configure private DNS and the TLS Secret;
-10. add the private-ingress allowance immediately before applying the private
-    HTTPS ingress;
-11. configure the ingress/node/router source restrictions;
-12. optionally add the separately protected Git/SSH policy and path;
-13. add the backup allowance only when the backup job is configured;
-14. run the complete privacy test matrix.
+9. create the separate Authentik Application/OIDC provider and private client
+   Secret;
+10. configure Gitea's native Authentik OIDC source and prove in-cluster
+    discovery/issuer reachability;
+11. add the Tailscale-proxy allowance immediately before applying the
+    tailnet-only Gitea HTTPS Ingress;
+12. configure tailnet grants and confirm no ordinary ingress/router path;
+13. optionally add the separately tagged, tailnet-only Git/SSH policy and path;
+14. add the backup allowance only when the backup job is configured;
+15. run the complete privacy and identity test matrix.
 
 The Helm install shape is:
 
@@ -802,9 +940,11 @@ Apply the namespace default-deny rules and minimum bootstrap allowances before
 installing a workload. Add later allowances immediately before enabling the
 corresponding path. The final NetworkPolicies should allow only:
 
-- the selected private ingress controller to Gitea HTTP;
+- the selected Tailscale ingress proxy to Gitea HTTP;
 - Gitea to PostgreSQL;
 - Gitea and PostgreSQL to cluster DNS;
+- Gitea to the canonical Authentik issuer through the reviewed in-cluster
+  MagicDNS path;
 - explicitly required Gitea internal traffic;
 - the parent-controlled backup job to the database, Gitea data, and backup
   target;
@@ -816,25 +956,57 @@ NetworkPolicy is defense in depth. It does not replace host or router policy.
 
 ## 12. Bootstrap household identities
 
-Use the chart-created break-glass administrator only for recovery and
-bootstrap. At first login:
+Authentik is the household identity broker. Gitea trusts only its dedicated
+Authentik OIDC provider. Google is one Authentik login source; a child with
+another email uses a parent-invited local Authentik account plus a password or
+passkey. Email alone is not authentication.
 
-1. satisfy the forced password reset;
-2. enable a second factor or passkey if supported by the household;
-3. create a separate everyday parent account;
+Before exposing Gitea:
+
+1. complete the Authentik backup/recovery and tailnet privacy tests;
+2. create local `gitea-users` and `gitea-parents` groups;
+3. create a separate confidential Authentik Application/OIDC provider for
+   Gitea with the exact callback and a locally derived required group claim;
+4. store the OIDC client secret in the private household secret mechanism;
+5. prove a Gitea pod can resolve, validate, and reach the canonical Authentik
+   discovery document;
+6. configure Gitea's native Authentik authentication source with automatic
+   account linking disabled;
+7. enable external registration only for principals carrying the local
+   `gitea-users` claim.
+
+Use the chart-created local Gitea administrator only for bootstrap and
+recovery. At first login:
+
+1. satisfy the forced password reset and store the credential in the parent's
+   password manager;
+2. enable a second factor if supported by the recovery design;
+3. sign in through Authentik as an everyday parent and verify that account is
+   an ordinary Gitea user until explicitly made a site/organization owner;
 4. create a private parent-owned organization for Minecraft projects;
-5. make the everyday parent an organization owner;
-6. create one separate, non-admin account per child;
-7. grant each child write access only to explicitly assigned repositories or
-   teams;
-8. keep organization and repository settings parent-owned;
-9. create one empty private test repository per intended workflow;
-10. verify a child’s organization-creation attempts fail through both the UI
+5. make only approved everyday parents organization owners;
+6. enroll each child through Google or a single-use Authentik invitation, then
+   add the canonical household principal to `gitea-users`;
+7. verify each child becomes a separate, non-admin Gitea account;
+8. grant write access only to explicitly assigned repositories or teams;
+9. keep organization and repository settings parent-owned;
+10. create one empty private test repository per intended workflow;
+11. verify a child's organization-creation attempts fail through both the UI
     and API, and that the child cannot create a public repository, mirror,
     webhook, custom hook, or Actions workflow.
 
-Do not depend on the maintainer’s username, email, GitHub OAuth, or organization.
-The baseline needs no external identity provider.
+Never merge or link accounts because email addresses match. Roles come from
+parent-managed Authentik groups, not Google domain/email, Tailscale membership,
+Steam identity, Minecraft identity, or display name. Keep the stable Authentik
+issuer and subject as the application identity link.
+
+Browser OIDC does not authenticate Git operations. Each child uses a separate
+SSH key or a narrowly scoped Gitea credential. Disabling Authentik is not
+complete offboarding: also disable the Gitea user and revoke Gitea sessions,
+tokens, and SSH keys.
+
+Do not depend on the maintainer's username, email, Google Cloud project,
+GitHub OAuth, tailnet, or organization.
 
 A Minecraft friend does not need source access merely to join the game server.
 
@@ -846,26 +1018,33 @@ Do not declare the service ready until all rows pass:
 
 | Actor/path | Expected result |
 |---|---|
-| Authenticated child on allowed LAN | Can sign in and clone/pull/push an assigned private test repository |
-| Anonymous LAN browser/API/Git | Cannot enumerate or read users, organizations, repositories, API data, or a known private repository |
+| Approved child on the tailnet | Can sign in with Authentik and clone/pull/push an assigned private test repository |
+| Anonymous tailnet browser/API/Git | Cannot enumerate or read users, organizations, repositories, API data, or a known private repository |
 | Different child account | Cannot read or write a sibling’s unassigned repository |
 | Child settings and API | Cannot create an organization, make a repository public, add a mirror/webhook, enable Actions, or administer the organization |
-| Revoked child | Loses web and Git access; the child’s local clone remains intact |
-| CA or SSH pin mismatch | Fails closed |
+| Approved household Google account | Completes the exact Phase-0-selected Authentik callback and maps to the intended principal |
+| Unapproved Google account | Cannot enroll or receive a Gitea authorization claim |
+| Invited child with another email | Single-use invitation plus password/passkey works; email alone does not |
+| Same email from two sources | No automatic merge or account link |
+| Revoked child | Authentik, Gitea web, token, and SSH access are revoked; the local clone remains intact |
+| TLS or SSH pin mismatch | Fails closed |
 | Gitea outage | Local commit/build/test/play still works; sync reports an offline warning |
 | Pod/node restart | Repositories, database, TLS identity, and optional SSH identity persist |
-| External IPv4 and IPv6 | Cannot reach HTTPS or optional SSH |
+| Tailscale disconnected | Cannot reach HTTPS or optional SSH |
+| External IPv4 and IPv6 | Cannot reach HTTPS or optional SSH through any other path |
 
-From inside the LAN:
+From an approved tailnet client:
 
 - verify TLS without bypass flags;
+- verify `tailscale set --accept-dns=true` behavior and the exact MagicDNS name;
+- verify Authentik discovery/issuer and Gitea callback use no `home.lab` value;
 - inspect `kubectl get service --all-namespaces`;
 - inspect every Ingress/Gateway/TCP route;
 - inspect node listening ports;
 - inspect router forwarding and UPnP state;
 - confirm no public tunnel or Funnel is running.
 
-From a genuinely external network:
+With Tailscale disconnected and from a genuinely external network:
 
 - query a public resolver for both A and AAAA records;
 - test the router’s public IPv4 using the private Gitea Host/SNI name;
@@ -873,7 +1052,8 @@ From a genuinely external network:
 - test the optional SSH port;
 - confirm all attempts fail before application authentication.
 
-Testing from another Wi-Fi device on the same LAN is not an external test.
+Testing from another Wi-Fi device on the same LAN while it is still connected
+to the tailnet is not an external test.
 
 Keep addresses, scans, screenshots, and logs in the private `my_home`, not in a
 public issue.
@@ -888,17 +1068,25 @@ example is:
 ```json
 {
   "schema": "org.lavachicken.minecraft-git",
-  "contract_version": 1,
-  "policy": "lan-only-private-v1",
-  "web_url": "https://git.home.arpa/",
+  "contract_version": 2,
+  "policy": "tailnet-authentik-private-v1",
+  "web_url": "https://REPLACE_GITEA_TAILNET_FQDN/",
+  "transport": {
+    "type": "tailscale",
+    "require_magic_dns": true
+  },
+  "identity": {
+    "type": "oidc",
+    "issuer": "https://REPLACE_AUTHENTIK_TAILNET_FQDN/application/o/gitea/",
+    "subject_binding": "issuer-and-subject"
+  },
   "ssh": {
     "enabled": false,
-    "host": "git.home.arpa",
+    "host": "REPLACE_GITEA_SSH_HOST",
     "port": 2222,
     "host_key_sha256": "REPLACE_GITEA_SSH_HOST_KEY_SHA256"
   },
-  "organization": "minecraft-lab",
-  "tls_ca_sha256": "REPLACE_TLS_CA_SHA256"
+  "organization": "minecraft-lab"
 }
 ```
 
@@ -909,19 +1097,22 @@ The planned parent-run command is:
 
 ```bash
 sudo lacos minecraft site enroll \
-  site/lacos-minecraft-site.local.json \
-  --ca /path/to/public-home-ca.crt
+  site/lacos-minecraft-site.local.json
 ```
 
 That command does not exist yet; it is an Epic deliverable. Until it ships, do
-not work around it by baking a household endpoint or CA into the public image.
+not work around it by baking a household endpoint, issuer, or tailnet into the
+public image.
 
 Enrollment must fail closed when:
 
 - the contract or policy version is unsupported;
-- the name resolves publicly or outside the approved private policy;
-- TLS does not chain to the supplied CA;
-- the CA fingerprint differs;
+- the client is not connected to the expected private Tailscale transport or
+  is not accepting MagicDNS;
+- the web URL, discovery document, issuer, or callback uses a different host,
+  `home.lab`, an IP address, HTTP, or a Kubernetes name;
+- HTTPS does not chain to a publicly trusted root without a bypass;
+- the service remains reachable with Tailscale disconnected;
 - optional SSH host identity differs;
 - the service reports anonymous or public policy.
 
@@ -977,10 +1168,13 @@ A recovery set must consistently include:
 - Gitea configuration;
 - persistent SSH host keys, if SSH is enabled;
 - Gitea encryption/signing material required to decrypt restored data;
+- the Gitea Authentik authentication-source definition, client identity, group
+  contract, and protected client-secret recovery or rotation procedure;
 - organization, team, issue, and permission metadata;
 - the pinned chart archive, `versions.lock`, rendered checksums, and private
   runbook;
-- protected CA and Kubernetes-secret recovery material.
+- protected Kubernetes-secret, tailnet-policy, and break-glass recovery
+  material.
 
 Official Gitea guidance warns that the database and repository data can become
 inconsistent if they change during a dump. Use a documented maintenance or
@@ -997,8 +1191,9 @@ At least quarterly and before every upgrade:
 1. restore into an isolated namespace or disposable cluster with no production
    ingress;
 2. restore PostgreSQL and Gitea data as one recovery point;
-3. restore the expected TLS/SSH identity;
-4. verify parent login and child authorization;
+3. restore the expected canonical FQDN, Authentik OIDC, and optional SSH
+   identity;
+4. verify break-glass recovery, everyday parent login, and child authorization;
 5. verify organizations, teams, issues, releases, attachments, and LFS;
 6. clone, commit, push, and pull a private test repository;
 7. rerun the privacy policy tests;
@@ -1025,8 +1220,8 @@ For each change:
 8. test rollback by restore, not only `helm rollback`;
 9. schedule a maintenance window;
 10. deploy;
-11. rerun LAN, anonymous, cross-user, external, backup, and LaCOS contract
-    tests;
+11. rerun tailnet-DNS, OIDC, anonymous, cross-user, off-tailnet, backup, and
+    LaCOS contract tests;
 12. tag the known-good `my_home` commit.
 
 Database migrations may make a Helm rollback insufficient. The tested recovery
@@ -1044,7 +1239,8 @@ Before any teardown:
 2. take a final encrypted backup;
 3. prove it can restore;
 4. revoke application tokens and keys;
-5. remove ingress, optional SSH exposure, and private DNS first;
+5. remove the Tailscale Ingress, optional SSH exposure, and service grant
+   first;
 6. verify the service is unreachable;
 7. uninstall only the Gitea release;
 8. preserve and inspect PVCs and their reclaim policies.
@@ -1054,8 +1250,9 @@ irreversible parent-only decision. Do not use namespace deletion as the normal
 uninstall path, and never uninstall k3s merely to remove Gitea; that cluster may
 host other applications.
 
-Keep local project clones. Remove only dedicated CA trust and host-key entries
-that are no longer shared by another home service.
+Keep local project clones. Remove only dedicated OIDC settings, scoped
+credentials, and host-key entries that are no longer shared by another home
+service.
 
 ---
 
@@ -1077,15 +1274,23 @@ The guide and starter are complete when a test can prove:
    chart-generated Secret. Public fixtures contain no real household value;
    private household renders permit schema-defined non-secret site values only
    at exact, chart-versioned key paths.
-7. Authenticated LAN use succeeds; anonymous, cross-user, and external access
-   fails.
-8. A child cannot publish, mirror, add webhooks, enable Actions, or administer
+7. Authenticated use from an approved tailnet client succeeds; anonymous,
+   cross-user, off-tailnet, and external access fails.
+8. Every client accepts Tailscale DNS; Authentik uses the exact
+   Phase-0-selected FQDN and Gitea uses its canonical MagicDNS FQDN; no issuer,
+   callback, or service setting uses `home.lab` or a failed candidate.
+9. An approved Google account and an invited arbitrary-email child can sign in,
+   while unapproved enrollment, duplicate/edited email, invitation replay, and
+   email-based automatic linking fail.
+10. Gitea uses native Authentik OIDC and local parent-managed authorization
+    claims; Git uses separate per-user SSH/scoped credentials.
+11. A child cannot publish, mirror, add webhooks, enable Actions, or administer
    the service.
-9. Pod/node restarts preserve the intended state.
-10. Gitea downtime does not stop local Git/build/play.
-11. Off-cluster material can rebuild and restore the full service without
+12. Pod/node restarts preserve the intended state.
+13. Gitea downtime does not stop local Git/build/play.
+14. Off-cluster material can rebuild and restore the full service without
     first accessing the failed Gitea.
-12. Upgrade and teardown procedures preserve a verified recovery path.
+15. Upgrade and teardown procedures preserve a verified recovery path.
 
 ---
 
@@ -1097,6 +1302,12 @@ The guide and starter are complete when a test can prove:
 - [Gitea access-control permissions](https://docs.gitea.com/usage/access-control/permissions)
 - [Gitea Actions overview](https://docs.gitea.com/usage/actions/overview)
 - [Gitea backup and restore](https://docs.gitea.com/usage/backup-and-restore)
+- [Authentik Gitea integration](https://integrations.goauthentik.io/services/gitea/)
+- [Authentik Google OAuth source](https://docs.goauthentik.io/users-sources/sources/social-logins/google/cloud/)
+- [Tailscale Kubernetes Operator installation](https://tailscale.com/docs/kubernetes-operator/install-operator)
+- [Tailscale private Kubernetes Ingress](https://tailscale.com/docs/kubernetes-operator/ingress/expose-workload-to-tailnet-l7)
+- [Tailscale custom-domain Gateway pattern](https://tailscale.com/docs/solutions/kubernetes-operator-byod-gateway-api)
+- [Tailscale client DNS preferences](https://tailscale.com/docs/features/client/manage-preferences)
 - [k3s networking services and ServiceLB](https://docs.k3s.io/networking/networking-services)
 - [k3s Secrets encryption](https://docs.k3s.io/security/secrets-encryption)
 - [k3s backup and restore](https://docs.k3s.io/datastore/backup-restore)

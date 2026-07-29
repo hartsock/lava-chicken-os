@@ -47,8 +47,8 @@ it holds every site particular so the image stays generic.
 
 | Item | Issue | Exit |
 |---|---|---|
-| Join Tailscale (wizard step) | [#3](https://github.com/hartsock/lava-chicken-os/issues/3) | box on the tailnet, remote-manageable |
-| Split-DNS + the print-a-DNS-line step | — (folded into [#15](https://github.com/hartsock/lava-chicken-os/issues/15), shipped) | `*.<domain>` resolves on-box; `<box>.<domain>` LAN-wide after the operator adds the printed line |
+| Join Tailscale (wizard step) | [#3](https://github.com/hartsock/lava-chicken-os/issues/3) | box on the tailnet, MagicDNS accepted, remote-manageable |
+| Split-DNS + the print-a-DNS-line step | — (folded into [#15](https://github.com/hartsock/lava-chicken-os/issues/15), shipped) | `*.<domain>` resolves on-box and from an off-LAN tailnet client; the Phase-0-selected Authentik HTTPS name resolves through Tailscale DNS |
 
 *(Two former tracking issues here carried site-specific detail and were removed;
 the generic capability shipped inside the wizard. #3 remains to VERIFY the

@@ -167,12 +167,14 @@ jobs:
             # it must actually run + seed /etc/skel with the bundled skills
             /usr/share/lava-chicken/bin/lacos-sync-skills --force >/dev/null 2>&1
             need_f /etc/skel/.newt/skills/youtube-prep/SKILL.md
+            need_f /etc/skel/.newt/skills/tailscale-setup/SKILL.md
             # account seed + agent persona + branded payload
             need_f /usr/lib/sysusers.d/nugget.conf
             need_f /usr/share/lava-chicken/persona/nugget-persona.md
             # bundled newt skills (#19) must ship in the payload
             need_f /usr/share/lava-chicken/newt-skills/youtube-prep/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/video-edit/SKILL.md
+            need_f /usr/share/lava-chicken/newt-skills/tailscale-setup/SKILL.md
             # kid skills: wireless VR + wired (USB) VR + Minecraft modding
             need_f /usr/share/lava-chicken/newt-skills/vr-setup/SKILL.md
             need_f /usr/share/lava-chicken/newt-skills/vr-usb/SKILL.md

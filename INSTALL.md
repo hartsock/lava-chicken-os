@@ -203,6 +203,12 @@ DNS? — and skips anything you say no to. Kid accounts are **passwordless
 click-to-switch** on the box, can't administrate anything, and are never
 reachable from the network.
 
+If your household uses Authentik or Google SSO, keep Tailscale DNS enabled and
+use the one private HTTPS name selected by the Google compatibility gate
+everywhere—normally the tested `*.ts.net` name, or the runbook's
+Tailscale-resolved parent-owned-domain branch; never `authentik.home.lab`. See
+[the Tailscale and Authentik home-lab runbook](docs/TAILSCALE-AUTHENTIK.md).
+
 ## Meet Nugget 🐔
 
 Every user gets a **"nugget"** icon: their own AI helper, running entirely on

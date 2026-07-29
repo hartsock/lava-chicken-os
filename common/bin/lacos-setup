@@ -89,6 +89,35 @@ if ask_yesno "Do you have a home DNS / custom LAN domain (e.g. home.arpa)?"; the
   save LAVA_LAN_DOMAIN "$dom"; save LAVA_LAN_DNS "$dns"
 else save LAVA_LAN_DOMAIN ""; fi
 
+# 4.5) Home SSO? ------------------------------------------------------------
+# Only meaningful once *.home.lab resolves (needs the Home DNS step above).
+# Ties LaCOS logins to the home Authentik IdP so home apps (Gitea, …) don't
+# demand a separate login. Kid desktop login stays local/passwordless; this
+# layers SSO at the app/browser level. See docs/HOME-SSO.md (#69).
+if [ -n "${LAVA_LAN_DOMAIN:-}" ] && ask_yesno "Set up Home SSO (single sign-on to home apps like Gitea via Authentik)?"; then
+  ak_url="$(ask "Authentik base URL?" "${LAVA_AUTHENTIK_URL:-https://authentik.$LAVA_LAN_DOMAIN}")"
+  cid="$(ask "Home SSO client ID (the 'LaCOS Desktop' app in Authentik)?" "${LAVA_SSO_CLIENT_ID:-}")"
+  ca_src="$(ask "Home CA cert path or URL (blank = auto-detect from TLS)?" "${LAVA_HOME_CA_SRC:-}")"
+  save LAVA_AUTHENTIK_URL "$ak_url"; save LAVA_SSO_CLIENT_ID "$cid"
+  [ -n "$ca_src" ] && save LAVA_HOME_CA_SRC "$ca_src"
+  PROV=/usr/share/lava-chicken/provision; [ -d "$PROV" ] || PROV="$HERE/../provision"
+  if sudo LAVA_AUTHENTIK_URL="$ak_url" LAVA_HOME_CA_SRC="$ca_src" bash "$PROV/35-home-sso.sh"; then
+    say "Home SSO configured (CA trusted, login-refresh unit installed)."
+    # Offer to enroll each kid now (one-time device-code login per kid).
+    for kid in ${LAVA_KID_USERS:-}; do
+      if ask_yesno "Enroll '$kid' with Home SSO now (they/you type a code in the browser once)?"; then
+        sudo -u "$kid" -- env LAVA_AUTHENTIK_URL="$ak_url" LAVA_SSO_CLIENT_ID="$cid" \
+          dbus-run-session -- lacos-sso enroll \
+          || say "enroll '$kid' later from their desktop: run 'lacos-sso enroll'"
+      fi
+    done
+    say "Each kid can also (re)sign-in anytime via the 'Sign in to Home' app on their desktop."
+  else
+    say "Home SSO step hit a snag — re-run 'lacos setup' or 'sudo $PROV/35-home-sso.sh'"
+  fi
+  save LAVA_HOME_SSO yes
+else [ -n "${LAVA_LAN_DOMAIN:-}" ] && save LAVA_HOME_SSO no; fi
+
 # 5) WireGuard streaming? ---------------------------------------------------
 if ask_yesno "Use WireGuard for low-latency game streaming (Sunshine/Moonlight)?"; then
   say "On your WG hub, add this box as a peer (e.g. wg-add-peer.sh)."

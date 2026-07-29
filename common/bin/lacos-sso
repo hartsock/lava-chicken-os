@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# lacos-sso — bridge a LaCOS kid session to the home.lab single-sign-on (Authentik).
+#
+# Why this exists: kids log into the LaCOS desktop with a LOCAL, passwordless
+# account (so gaming works offline). This tool layers home.lab SSO on top so
+# that home apps (Gitea, …) don't demand a separate login:
+#
+#   • enroll   — one-time per kid: OAuth 2.0 *device-code* login to Authentik
+#                (kid/parent types a short code in a browser once). The refresh
+#                token is cached in the user's keyring (never on disk in plain).
+#   • refresh  — redeem the cached refresh token for fresh tokens. Run at login
+#                by lacos-sso.service; best-effort (no network → clean no-op).
+#   • login    — open the home portal (or a specific app) in the browser to
+#                establish/renew the Authentik *browser session*. Once that
+#                session cookie exists, every home app SSOs with no prompt.
+#   • status   — show enrollment + token state for the current user.
+#
+# Design notes:
+#   - Browser SSO (no prompt) comes from a persistent browser profile + a live
+#     Authentik session; `login` establishes it, and Authentik's session
+#     lifetime keeps it alive. The device-code token here proves identity and
+#     is available for CLI/API use (e.g. a future git credential helper); it is
+#     NOT a browser cookie.
+#   - Secrets (refresh token) live in the login keyring via `secret-tool`,
+#     matching the wizard's "secrets used once, not written to site.conf" rule.
+#   - Pure bash + curl + jq + secret-tool. No network at login is fine.
+set -uo pipefail
+
+SITE=/etc/lava-chicken/site.conf
+# shellcheck source=/dev/null
+[ -r "$SITE" ] && . "$SITE" 2>/dev/null || true
+
+AUTHENTIK="${LAVA_AUTHENTIK_URL:-}"                 # e.g. https://authentik.home.lab
+CLIENT_ID="${LAVA_SSO_CLIENT_ID:-}"                 # the "LaCOS Desktop" public client
+PORTAL="${LAVA_HOME_PORTAL:-$AUTHENTIK}"            # what `login` opens by default
+SCOPE="openid email profile offline_access"
+SECRET_SERVICE="lacos-sso"                          # secret-tool schema attr
+
+say()  { printf '\033[1;36m[lacos-sso]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;31m[lacos-sso]\033[0m %s\n' "$*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+need_cfg() {
+  [ -n "$AUTHENTIK" ] && [ -n "$CLIENT_ID" ] && return 0
+  warn "Home SSO isn't configured. Run 'lacos setup' and answer the Home SSO step."
+  return 1
+}
+dev_endpoint()   { echo "$AUTHENTIK/application/o/device/"; }
+token_endpoint() { echo "$AUTHENTIK/application/o/token/"; }
+
+kr_store() { secret-tool store --label="LaCOS SSO refresh token ($USER)" \
+               service "$SECRET_SERVICE" user "$USER" >/dev/null 2>&1; }   # reads stdin
+kr_get()   { secret-tool lookup service "$SECRET_SERVICE" user "$USER" 2>/dev/null; }
+kr_clear() { secret-tool clear service "$SECRET_SERVICE" user "$USER" 2>/dev/null || true; }
+
+cmd_enroll() {
+  need_cfg || return 1
+  have jq || { warn "jq is required"; return 1; }
+  say "Enrolling $USER with home SSO at $AUTHENTIK …"
+  local resp dc uc uri uri_full interval
+  resp="$(curl -fsS -X POST "$(dev_endpoint)" \
+            -d "client_id=$CLIENT_ID" --data-urlencode "scope=$SCOPE" 2>/dev/null)" \
+    || { warn "device authorization request failed (is home.lab reachable?)"; return 1; }
+  dc="$(jq -r .device_code <<<"$resp")"
+  uc="$(jq -r .user_code <<<"$resp")"
+  uri="$(jq -r .verification_uri <<<"$resp")"
+  uri_full="$(jq -r '.verification_uri_complete // empty' <<<"$resp")"
+  interval="$(jq -r '.interval // 5' <<<"$resp")"
+  [ -n "$dc" ] && [ "$dc" != "null" ] || { warn "unexpected response: $resp"; return 1; }
+
+  echo
+  say "Open this in a browser and sign in as the kid's home account:"
+  say "    ${uri_full:-$uri}   (code: $uc)"
+  echo
+  [ -n "${uri_full:-}" ] && have xdg-open && xdg-open "$uri_full" >/dev/null 2>&1 &
+
+  # poll the token endpoint until the user approves (or it expires)
+  local t rt err
+  while :; do
+    sleep "$interval"
+    t="$(curl -fsS -X POST "$(token_endpoint)" \
+          -d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+          -d "client_id=$CLIENT_ID" -d "device_code=$dc" 2>/dev/null)" || t=""
+    err="$(jq -r '.error // empty' <<<"$t" 2>/dev/null)"
+    case "$err" in
+      authorization_pending|slow_down) continue ;;
+      "" ) rt="$(jq -r '.refresh_token // empty' <<<"$t")"
+           if [ -n "$rt" ]; then printf '%s' "$rt" | kr_store
+             say "✓ $USER enrolled — token cached in the keyring."
+             return 0
+           fi
+           warn "no refresh token in response (is 'offline_access' scope granted?)"; return 1 ;;
+      * )  warn "enrollment failed: $err"; return 1 ;;
+    esac
+  done
+}
+
+cmd_refresh() {
+  need_cfg || return 0            # not configured → nothing to do (clean exit for the login unit)
+  local rt t at
+  rt="$(kr_get)"; [ -n "$rt" ] || { say "not enrolled (run: lacos-sso enroll)"; return 0; }
+  t="$(curl -fsS -X POST "$(token_endpoint)" \
+        -d "grant_type=refresh_token" -d "client_id=$CLIENT_ID" \
+        --data-urlencode "refresh_token=$rt" 2>/dev/null)" || { say "offline — skipping refresh"; return 0; }
+  at="$(jq -r '.access_token // empty' <<<"$t" 2>/dev/null)"
+  if [ -n "$at" ]; then
+    # rotate the refresh token if the server issued a new one
+    local nrt; nrt="$(jq -r '.refresh_token // empty' <<<"$t")"
+    [ -n "$nrt" ] && printf '%s' "$nrt" | kr_store
+    say "session refreshed."
+  else
+    warn "refresh rejected — re-enroll with: lacos-sso enroll"; return 0
+  fi
+}
+
+cmd_login() {
+  need_cfg || return 1
+  local target="${1:-$PORTAL}"
+  have xdg-open || { warn "xdg-open not found"; return 1; }
+  say "Opening $target — sign in once; home apps stay signed in after that."
+  xdg-open "$target" >/dev/null 2>&1 &
+}
+
+cmd_status() {
+  echo "user:       $USER"
+  echo "authentik:  ${AUTHENTIK:-<unset>}"
+  echo "client_id:  ${CLIENT_ID:-<unset>}"
+  if [ -n "$(kr_get)" ]; then echo "enrolled:   yes (refresh token in keyring)"
+  else echo "enrolled:   no  (run: lacos-sso enroll)"; fi
+}
+
+usage() { sed -n '2,26p' "$0"; echo; echo "usage: lacos-sso {enroll|refresh|login [url]|status|logout}"; }
+
+case "${1:-status}" in
+  enroll)  cmd_enroll ;;
+  refresh) cmd_refresh ;;
+  login)   shift; cmd_login "${1:-}" ;;
+  status)  cmd_status ;;
+  logout)  kr_clear; say "cleared cached token for $USER" ;;
+  -h|--help|help) usage ;;
+  *) usage; exit 64 ;;
+esac

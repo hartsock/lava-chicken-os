@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sign in to Home
+GenericName=Home SSO
+Comment=Sign in once to your home account — then Gitea and other home apps just work
+Exec=lacos-sso login
+Icon=system-users
+Terminal=false
+Categories=Network;System;
+Keywords=login;sso;home;authentik;gitea;signin;homelab;

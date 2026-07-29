@@ -1,0 +1,20 @@
+# User unit — keeps a kid's home.lab SSO session warm at login.
+# Installed to /etc/systemd/user/ and enabled --global by 35-home-sso.sh so it
+# runs in every user session. Best-effort: `lacos-sso refresh` is a clean no-op
+# when Home SSO isn't configured or the box is offline, so this never blocks or
+# delays login on a machine that's away from home.
+[Unit]
+Description=LaCOS home.lab SSO session refresh
+After=graphical-session.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Don't let a slow/absent network stall the session.
+TimeoutStartSec=30
+ExecStart=/usr/bin/lacos-sso refresh
+# Never fail the session on SSO trouble.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=default.target

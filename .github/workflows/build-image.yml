@@ -85,18 +85,27 @@ jobs:
         id: build
         run: |
           set -euxo pipefail
-          sudo podman build \
-            --pull=newer \
-            --file bazzite/Containerfile \
-            --build-arg "BASE_IMAGE=${{ matrix.base }}" \
-            --build-arg "LAVA_VARIANT=${{ matrix.variant }}" \
-            --build-arg "LAVA_GITHUB_USER=${{ steps.cfg.outputs.gh_user }}" \
-            --build-arg "LAVA_BOX_NAME=${{ vars.LAVA_BOX_NAME || 'nugget' }}" \
-            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-            --label "org.opencontainers.image.description=Lava Chicken OS (LaCOS) — custom Bazzite bootc image" \
-            --label "org.opencontainers.image.title=${IMAGE_NAME}" \
-            --tag "${IMAGE_NAME}:build" \
-            ./bazzite
+          # Retry once: hosted runners occasionally fail at container create with
+          # a transient crun "unknown version specified" (run 30496047245, deck
+          # leg) that a clean second attempt clears. Layers are cached, so the
+          # retry is cheap. A real build error fails both attempts.
+          for attempt in 1 2; do
+            if sudo podman build \
+              --pull=newer \
+              --file bazzite/Containerfile \
+              --build-arg "BASE_IMAGE=${{ matrix.base }}" \
+              --build-arg "LAVA_VARIANT=${{ matrix.variant }}" \
+              --build-arg "LAVA_GITHUB_USER=${{ steps.cfg.outputs.gh_user }}" \
+              --build-arg "LAVA_BOX_NAME=${{ vars.LAVA_BOX_NAME || 'nugget' }}" \
+              --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+              --label "org.opencontainers.image.description=Lava Chicken OS (LaCOS) — custom Bazzite bootc image" \
+              --label "org.opencontainers.image.title=${IMAGE_NAME}" \
+              --tag "${IMAGE_NAME}:build" \
+              ./bazzite; then break; fi
+            [ "$attempt" = 2 ] && exit 1
+            echo "::warning::podman build attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
 
       # L1 smoke (#9): assert the baked "nugget layer" INSIDE the freshly-built
       # image before we ever push. Runs on every PR + push, ~1 min, no VM. This
@@ -321,13 +330,21 @@ jobs:
               echo "GUARD FAILED"; exit 1; fi
           '
 
+      # Plain podman login with retries: a one-off ghcr.io token EOF (run
+      # 34117994250) failed the whole leg after a good build. Same pattern
+      # build-iso already uses; the root auth file is what `sudo podman push` reads.
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "$GHCR_TOKEN" | sudo -E podman login ghcr.io -u "${{ github.actor }}" --password-stdin && exit 0
+            echo "::warning::GHCR login attempt $attempt failed; retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          exit 1
 
       - name: Push to GHCR
         id: push
@@ -344,7 +361,6 @@ jobs:
           fi
           for tag in $TAGS; do
             sudo podman tag "${IMAGE_NAME}:build" "${DEST}:${tag}"
-            # sudo -E preserves $HOME so podman finds the docker/login-action auth.
             sudo -E podman push --digestfile=/tmp/digestfile "${DEST}:${tag}"
           done
           echo "digest=$(< /tmp/digestfile)" >>"$GITHUB_OUTPUT"
@@ -382,6 +398,25 @@ jobs:
           [ "${{ needs.build-image.result }}" = "success" ] \
             || { echo "FAIL: build-image matrix result = ${{ needs.build-image.result }}"; exit 1; }
           echo "all variants green"
+
+  # GitHub disables scheduled workflows after 60 days with no repo activity
+  # (build-image, test-boot and test-dualboot went dormant after the 2026-09-28 run).
+  # Re-enabling via the API resets that timer, so the weekly run keeps itself
+  # and the nightly boot tests alive with no keepalive commits.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable scheduled workflows (resets the inactivity timer)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in build-image.yml test-boot.yml test-dualboot.yml; do
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/${wf}/enable" \
+              || echo "::warning::could not re-enable ${wf}"
+          done
 
   build-iso:
     needs: image-gate

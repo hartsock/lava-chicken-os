@@ -330,9 +330,11 @@ jobs:
               echo "GUARD FAILED"; exit 1; fi
           '
 
-      # Plain podman login with retries: a one-off ghcr.io token EOF (run
-      # 34117994250) failed the whole leg after a good build. Same pattern
-      # build-iso already uses; the root auth file is what `sudo podman push` reads.
+      # Login with retries: a one-off ghcr.io token EOF (run 34117994250) failed
+      # the whole leg after a good build. Two credential stores need it:
+      # `sudo -E podman push` reads root's podman auth file, and cosign (runs as
+      # the runner user) reads ~/.docker/config.json — skipping the docker login
+      # broke signing in run 38165601767.
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         env:
@@ -340,7 +342,9 @@ jobs:
         run: |
           set -uo pipefail
           for attempt in 1 2 3 4 5; do
-            echo "$GHCR_TOKEN" | sudo -E podman login ghcr.io -u "${{ github.actor }}" --password-stdin && exit 0
+            echo "$GHCR_TOKEN" | sudo -E podman login ghcr.io -u "${{ github.actor }}" --password-stdin \
+              && echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin \
+              && exit 0
             echo "::warning::GHCR login attempt $attempt failed; retrying in $((attempt * 10))s"
             sleep $((attempt * 10))
           done
